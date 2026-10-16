@@ -10,7 +10,11 @@ Copy `.env.staging.example` to an ignored local file such as `.env.staging.local
 
 ## Edge Function configuration
 
-Supabase supplies `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` to hosted functions. Keep the service-role key only in Supabase Function secrets. The Option A flight request flow also needs the staging `FLIGHTAPI_KEY`, `FLIGHT_PROVIDER=flightapi`, `FLIGHT_BOOKING_PROVIDER=none`, and an exact preview origin in `BOOKING_ALLOWED_ORIGINS`. The default CORS allowlist is empty. Do not use wildcard origins or configure payment, reservation, or ticketing integrations.
+Supabase supplies `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` to hosted functions. Keep the service-role key only in Supabase Function secrets. Live fares require the staging `FLIGHTAPI_KEY`; `FLIGHT_BOOKING_PROVIDER=none` preserves Option A. Set `FLIGHT_PROVIDER=none` unless a separate schedule provider is intentionally configured. In particular, do not set it to `flightapi`: the pricing provider already uses FlightAPI, and a second FlightAPI fallback call is now prevented. If schedule-only fallback is desired, configure a separate provider and its own staging credential.
+
+The flight-search function allows the exact Vercel staging origin and local Vite origins by default. `FLIGHT_SEARCH_ALLOWED_ORIGINS` may add exact HTTPS preview origins; wildcard origins are rejected. Booking requests use the separate `BOOKING_ALLOWED_ORIGINS` setting. CORS is a browser policy, not authentication. The public Supabase publishable key is not treated as a customer identity: anonymous search is rate-limited by a pseudonymous HMAC of the gateway-provided client IP, using the existing persistent `inquiry` rate-limit scope at five requests per ten minutes. Rate-limit storage failures reject the search. No schema migration is required for this limit because the deployed RPC already accepts the `inquiry` scope.
+
+An empty active pricing-rule set returns a clear unavailable response before any FlightAPI call. Do not activate a pricing rule as part of function deployment; pricing policy requires separate approval. No payment, reservation, or ticketing integrations should be configured.
 
 Use the values in `supabase/.env.staging.example` as names/placeholders only; replace placeholders in an ignored local file. Do not print those values to logs or commit the local file.
 
