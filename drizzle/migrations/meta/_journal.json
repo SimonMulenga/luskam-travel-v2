@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1790240837695,
+      "tag": "0000_cms_blog_newsletter",
+      "breakpoints": true
+    }
+  ]
+}

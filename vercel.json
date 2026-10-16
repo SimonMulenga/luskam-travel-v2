@@ -1,0 +1,16 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    { "source": "/flights", "destination": "/index.html" },
+    { "source": "/checkout", "destination": "/index.html" },
+    { "source": "/account", "destination": "/index.html" },
+    { "source": "/admin", "destination": "/index.html" },
+    { "source": "/hotels", "destination": "/index.html" },
+    { "source": "/cars", "destination": "/index.html" },
+    { "source": "/visa", "destination": "/index.html" },
+    { "source": "/kakande", "destination": "/index.html" },
+    { "source": "/auth", "destination": "/index.html" },
+    { "source": "/blog", "destination": "/index.html" },
+    { "source": "/blog/:slug", "destination": "/index.html" }
+  ]
+}
