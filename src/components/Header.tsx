@@ -30,7 +30,7 @@ export const Header = () => {
 
   return (
     <header className="sticky top-0 z-50 border-b border-border/70 bg-background/95 shadow-[0_4px_20px_-16px_rgba(12,31,58,.35)] backdrop-blur-xl supports-[backdrop-filter]:bg-background/90">
-      <div className="container flex h-[76px] items-center justify-between gap-4">
+      <div className="mx-auto flex h-[76px] w-full min-w-0 max-w-[1400px] items-center justify-between gap-3 px-4 sm:gap-4 sm:px-6 2xl:px-8">
         <Link to="/" className="flex min-w-0 items-center gap-3" aria-label="Luskam Travel Agents home">
           <img src={logo} alt="" className="h-11 w-11 rounded-xl object-cover ring-1 ring-primary/10" width={44} height={44} />
           <div className="min-w-0 leading-tight">
@@ -62,7 +62,7 @@ export const Header = () => {
       </div>
       {menuOpen && (
         <div id="mobile-navigation" className="border-t border-border bg-background px-4 pb-5 pt-3 shadow-lg xl:hidden">
-          <nav aria-label="Mobile navigation" className="container flex flex-col gap-1">
+          <nav aria-label="Mobile navigation" className="mx-auto flex w-full max-w-[1400px] flex-col gap-1 sm:px-2">
             {nav.map((item) => {
               const active = item.matches.some((path) => location.pathname === path || location.pathname.startsWith(`${path}/`)) ||
                 (item.to === "/#search" && location.pathname === "/" && location.hash === "#search") ||
