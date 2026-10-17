@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { format } from "date-fns";
-import { Activity, BadgeCheck, BookOpen, CalendarDays, ChevronRight, CircleDollarSign, FileText, Loader2, Mail, Package, RefreshCw, Shield, SlidersHorizontal, Trash2, UserPlus, Users, WalletCards } from "lucide-react";
+import { Activity, BadgeCheck, BookOpen, CalendarDays, ChevronRight, CircleDollarSign, FileText, Loader2, Mail, Package, RefreshCw, Shield, SlidersHorizontal, Trash2, UserPlus, Users, WalletCards, Plane } from "lucide-react";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { supabase } from "@/integrations/supabase/client";
@@ -9,6 +9,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useRoles, type AppRole } from "@/hooks/useRoles";
 import { toast } from "sonner";
 import { FlightPricing } from "@/components/admin/FlightPricing";
+import { FlightQuoteRequests } from "@/components/admin/FlightQuoteRequests";
 import { SiteContentEditor } from "@/components/admin/SiteContentEditor";
 import { BlogManager } from "@/components/admin/BlogManager";
 import { SubscribersList } from "@/components/admin/SubscribersList";
@@ -28,7 +29,7 @@ interface Booking {
   details: Record<string, unknown>;
 }
 interface RoleRow { id: string; user_id: string; role: AppRole; created_at: string; email?: string; full_name?: string }
-type Tab = "bookings" | "team" | "pricing" | "content" | "blog" | "subscribers";
+type Tab = "bookings" | "flight-quotes" | "team" | "pricing" | "content" | "blog" | "subscribers";
 
 const serviceLabels: Record<string, string> = { flight: "Flight", hotel: "Hotel", car: "Car hire", visa: "Visa", kakande: "Kakande trip", package: "Package", transfer: "Transfer", insurance: "Insurance" };
 
@@ -80,6 +81,7 @@ const AdminPage = () => {
   const paidValue = currencyTotals(filtered.filter((booking) => booking.payment_status === "paid"));
   const tabs: { id: Tab; label: string; icon: typeof Package; adminOnly?: boolean }[] = [
     { id: "bookings", label: "Bookings", icon: Package },
+    { id: "flight-quotes", label: "Flight quotes", icon: Plane },
     { id: "pricing", label: "Flight pricing", icon: SlidersHorizontal },
     { id: "content", label: "Website content", icon: FileText, adminOnly: true },
     { id: "blog", label: "Blog", icon: BookOpen, adminOnly: true },
@@ -149,6 +151,8 @@ const AdminPage = () => {
         {loading ? <div className="flex min-h-52 items-center justify-center gap-3 text-sm text-muted-foreground" role="status"><Loader2 className="h-5 w-5 animate-spin text-accent" />Loading booking records…</div> : filtered.length === 0 ? <div className="px-5 py-16 text-center"><CalendarDays className="mx-auto h-8 w-8 text-slate-300" /><p className="mt-3 font-semibold text-primary">No bookings match these filters</p><p className="mt-1 text-sm text-muted-foreground">Try a different service or status.</p></div> : <div className="overflow-x-auto overscroll-x-contain"><table className="w-full min-w-[920px] text-sm"><thead className="bg-slate-50 text-left text-[11px] font-semibold uppercase tracking-[.13em] text-muted-foreground"><tr><th className="px-4 py-3.5">Reference</th><th className="px-4 py-3.5">Service</th><th className="px-4 py-3.5">Travel date</th><th className="px-4 py-3.5">Amount</th><th className="px-4 py-3.5">Booking status</th><th className="px-4 py-3.5">Recorded payment status</th><th className="px-4 py-3.5">Created</th></tr></thead><tbody className="divide-y divide-border/70">{filtered.map((booking) => <tr key={booking.id} className="transition hover:bg-surface/70"><td className="px-4 py-3.5 font-mono text-xs font-semibold text-primary">{booking.reference}<RequestDetails booking={booking} /></td><td className="px-4 py-3.5"><span className="inline-flex rounded-full bg-surface px-2.5 py-1 text-xs font-semibold text-foreground">{serviceLabels[booking.type] ?? booking.type}</span></td><td className="px-4 py-3.5 text-muted-foreground">{booking.travel_date ? format(new Date(booking.travel_date), "dd MMM yyyy") : "—"}</td><td className="px-4 py-3.5 font-semibold text-primary">{booking.currency} {Number(booking.total_amount).toLocaleString()}</td><td className="px-4 py-3.5"><div className="flex flex-col items-start gap-1"><StatusBadge kind="booking" value={booking.status} /><label className="sr-only" htmlFor={`status-${booking.id}`}>Update booking status for {booking.reference}</label><select id={`status-${booking.id}`} aria-label={`Update booking status for ${booking.reference}`} value={booking.status} onChange={(event) => void updateBookingStatus(booking.id, event.target.value)} className="min-h-8 max-w-40 rounded-lg border border-border bg-white px-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring"><option value="pending">Request received</option><option value="confirmed">Request approved (not airline confirmed)</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select></div></td><td className="px-4 py-3.5"><div className="flex flex-col items-start gap-1"><StatusBadge kind="payment" value={booking.payment_status} amount={booking.total_amount} /></div></td><td className="px-4 py-3.5 text-xs text-muted-foreground">{format(new Date(booking.created_at), "dd MMM, HH:mm")}</td></tr>)}</tbody></table></div>}
         <div className="border-t border-border/70 px-5 py-3 text-xs text-muted-foreground sm:px-6">Showing records returned by current account permissions, up to 200 latest bookings.</div>
       </section>}
+
+      {tab === "flight-quotes" && <div className="mt-5 overflow-hidden rounded-3xl border border-border/70 bg-white shadow-sm"><FlightQuoteRequests /></div>}
 
       {tab === "pricing" && <div className="mt-5 min-w-0 rounded-3xl border border-border/70 bg-white p-4 shadow-sm sm:p-6"><div className="mb-4 flex items-center gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/5 text-primary"><SlidersHorizontal className="h-5 w-5" /></span><div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-accent">Fare controls</p><h2 className="break-words font-semibold text-primary">Flight pricing &amp; markup</h2></div></div><FlightPricing canEdit={isAdmin} /></div>}
       {tab === "content" && isAdmin && <Panel title="Website content" eyebrow="Site settings" icon={<FileText className="h-5 w-5" />}><SiteContentEditor /></Panel>}

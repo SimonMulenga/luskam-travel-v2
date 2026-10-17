@@ -861,6 +861,61 @@ export type Database = {
         }
         Relationships: []
       }
+      flight_quote_requests: {
+        Row: {
+          adults: number
+          cabin_class: string
+          children: number
+          created_at: string
+          customer_email: string
+          customer_name: string
+          customer_phone: string
+          departure_date: string
+          destination: string
+          dedupe_key: string
+          id: string
+          idempotency_key: string
+          infants: number
+          internal_notes: string
+          origin: string
+          reference: string
+          request_hash: string
+          return_date: string | null
+          special_requests: string
+          status: string
+          trip_type: string
+          updated_at: string
+        }
+        Insert: {
+          adults: number
+          cabin_class: string
+          children: number
+          created_at?: string
+          customer_email: string
+          customer_name: string
+          customer_phone: string
+          departure_date: string
+          destination: string
+          dedupe_key: string
+          id?: string
+          idempotency_key: string
+          infants: number
+          internal_notes?: string
+          origin: string
+          reference: string
+          request_hash: string
+          return_date?: string | null
+          special_requests?: string
+          status?: string
+          trip_type: string
+          updated_at?: string
+        }
+        Update: {
+          internal_notes?: string
+          status?: string
+        }
+        Relationships: []
+      }
       site_content: {
         Row: {
           key: string

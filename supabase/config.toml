@@ -1,1 +1,6 @@
 project_id = "ikbffvqkxwhkwlocjufc"
+
+[functions.request-flight-quote]
+# This endpoint intentionally accepts anonymous requests. The handler validates
+# input, enforces persistent IP-based rate limits, and writes only via service role.
+verify_jwt = false
