@@ -7,6 +7,11 @@ import FlightsPage from "@/pages/Flights";
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 
 vi.mock("@/integrations/supabase/client", () => ({ supabase: { functions: { invoke: invokeMock } } }));
+vi.mock("@/components/TurnstileWidget", () => ({
+  TurnstileWidget: ({ onToken }: { onToken: (token: string) => void }) => (
+    <button type="button" onClick={() => onToken("synthetic-turnstile-token")}>Complete verification</button>
+  ),
+}));
 vi.mock("@/components/Header", () => ({ Header: () => null }));
 vi.mock("@/components/Footer", () => ({ Footer: () => null }));
 
@@ -47,6 +52,7 @@ describe("manual flight quotation workflow", () => {
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "synthetic@example.test" } });
     fireEvent.change(screen.getByLabelText("Telephone or WhatsApp number"), { target: { value: "+260 977 000 000" } });
     fireEvent.change(screen.getByLabelText(/Special requests/), { target: { value: "Window seat preference" } });
+    fireEvent.click(screen.getByRole("button", { name: "Complete verification" }));
     fireEvent.click(screen.getByRole("button", { name: "Request flight quote" }));
 
     await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(1));
@@ -56,6 +62,7 @@ describe("manual flight quotation workflow", () => {
       search: { origin: "LUN", destination: "JNB", departureDate: "2026-11-10", returnDate: null, tripType: "oneway", passengers: { adults: 2, children: 0, infants: 0 }, cabinClass: "economy" },
       contact: { fullName: "Synthetic Customer", email: "synthetic@example.test", phone: "+260 977 000 000" },
       specialRequests: "Window seat preference",
+      turnstileToken: "synthetic-turnstile-token",
     });
     expect(body.idempotencyKey).toMatch(/^[0-9a-f-]{36}$/i);
     expect(body).not.toHaveProperty("user_id");
@@ -71,6 +78,7 @@ describe("manual flight quotation workflow", () => {
     fireEvent.change(screen.getByLabelText("Full name"), { target: { value: "Synthetic Customer" } });
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "synthetic@example.test" } });
     fireEvent.change(screen.getByLabelText("Telephone or WhatsApp number"), { target: { value: "+260 977 000 000" } });
+    fireEvent.click(screen.getByRole("button", { name: "Complete verification" }));
     fireEvent.click(screen.getByRole("button", { name: "Request flight quote" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("We couldn't submit your request just now");
     expect(screen.queryByText("sensitive database detail")).not.toBeInTheDocument();
@@ -83,6 +91,7 @@ describe("manual flight quotation workflow", () => {
     expect(screen.getByLabelText("Full name")).toBeVisible();
     expect(screen.getByLabelText("Email")).toBeVisible();
     expect(screen.getByLabelText("Telephone or WhatsApp number")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Complete verification" }));
     expect(screen.getByRole("button", { name: "Request flight quote" })).toBeVisible();
     expect(screen.getByLabelText("Full name").closest("section")).toHaveClass("min-w-0");
   });

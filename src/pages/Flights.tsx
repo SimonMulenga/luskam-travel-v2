@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useCallback, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowRight, CheckCircle2, Loader2, Plane, ShieldCheck } from "lucide-react";
 import { format, isValid, parseISO } from "date-fns";
@@ -7,6 +7,7 @@ import { Footer } from "@/components/Footer";
 import { airportLabel } from "@/data/flights";
 import { getAirport } from "@/data/airports";
 import { supabase } from "@/integrations/supabase/client";
+import { TurnstileWidget } from "@/components/TurnstileWidget";
 
 const dateLabel = (value: string) => {
   const date = parseISO(value);
@@ -36,6 +37,9 @@ export const FlightsPage = () => {
   const [error, setError] = useState("");
   const [reference, setReference] = useState("");
   const [idempotencyKey] = useState(() => crypto.randomUUID());
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [turnstileResetKey, setTurnstileResetKey] = useState(0);
+  const handleTurnstileToken = useCallback((token: string | null) => setTurnstileToken(token), []);
 
   const search = useMemo(() => ({
     origin: from,
@@ -51,14 +55,21 @@ export const FlightsPage = () => {
     event.preventDefault();
     setError("");
     setSubmitting(true);
+    if (!turnstileToken) {
+      setError("Complete the verification before sending your request.");
+      setSubmitting(false);
+      return;
+    }
     try {
       const { data, error: invokeError } = await supabase.functions.invoke("request-flight-quote", {
-        body: { search, contact: { fullName, email, phone }, specialRequests, idempotencyKey },
+        body: { search, contact: { fullName, email, phone }, specialRequests, idempotencyKey, turnstileToken },
       });
       if (invokeError || !data || typeof data.reference !== "string") throw new Error("request_failed");
       setReference(data.reference);
     } catch {
       setError("We couldn't submit your request just now. Please try again in a moment or contact our travel team.");
+      setTurnstileToken(null);
+      setTurnstileResetKey((key) => key + 1);
     } finally {
       setSubmitting(false);
     }
@@ -109,7 +120,8 @@ export const FlightsPage = () => {
                 <div><label htmlFor="quote-phone" className="text-sm font-semibold text-primary">Telephone or WhatsApp number</label><input id="quote-phone" type="tel" required maxLength={32} autoComplete="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="Include country code" className="mt-1.5 min-h-11 w-full rounded-xl border border-border px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" /></div>
                 <div><label htmlFor="quote-special-requests" className="text-sm font-semibold text-primary">Special requests <span className="font-normal text-muted-foreground">(optional)</span></label><textarea id="quote-special-requests" rows={4} maxLength={1000} value={specialRequests} onChange={(event) => setSpecialRequests(event.target.value)} placeholder="Any flexibility or preferences for your trip?" className="mt-1.5 w-full resize-y rounded-xl border border-border p-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" /></div>
                 <p className="text-xs leading-5 text-muted-foreground">Please don’t include passport, payment-card or other highly sensitive information.</p>
-                <button type="submit" disabled={submitting} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-accent px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-[hsl(var(--accent-hover))] disabled:cursor-wait disabled:opacity-70 sm:w-auto">
+                <TurnstileWidget onToken={handleTurnstileToken} resetKey={turnstileResetKey} />
+                <button type="submit" disabled={submitting || !turnstileToken} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-accent px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-[hsl(var(--accent-hover))] disabled:cursor-wait disabled:opacity-70 sm:w-auto">
                   {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Sending request</> : <>Request flight quote <ArrowRight className="h-4 w-4" /></>}
                 </button>
               </form>

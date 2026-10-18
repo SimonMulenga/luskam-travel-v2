@@ -13,12 +13,16 @@ export type FlightQuoteRequest = {
 };
 
 export type SavedRequest = { outcome: "created" | "duplicate" | "conflict" | "failed"; reference?: string };
+export type CaptchaResult = { success: boolean; hostname?: string; action?: string };
 export type FlightQuoteDependencies = {
+  verifyCaptcha: (token: string) => Promise<CaptchaResult>;
   rateLimitIdentity: (request: Request) => Promise<string>;
   rateLimit: (identity: string, maxRequests: number, windowSeconds: number) => Promise<{ allowed: boolean; retryAfterSeconds: number }>;
   hashRequest?: (request: FlightQuoteRequest) => Promise<string>;
   saveRequest: (request: FlightQuoteRequest, idempotencyKey: string, requestHash: string, dedupeKey: string, reference: string) => Promise<SavedRequest>;
   allowedOrigins?: string[];
+  expectedCaptchaHostname?: string;
+  expectedCaptchaAction?: string;
   now?: () => Date;
 };
 
@@ -40,6 +44,10 @@ export function gatewayReportedClientAddress(request: Request): string | null {
 const MAX_BODY_BYTES = 12_000;
 const LIMIT = 4;
 const WINDOW_SECONDS = 15 * 60;
+const GLOBAL_LIMIT = 60;
+const GLOBAL_RATE_LIMIT_IDENTITY = "9f1d9f00-9e00-4c9f-9d00-000000000001";
+const EXPECTED_CAPTCHA_HOSTNAME = "luskam-travel-v2.vercel.app";
+const EXPECTED_CAPTCHA_ACTION = "flight_quote_request";
 const DEFAULT_ORIGINS = [
   "https://luskam-travel-v2.vercel.app",
   "http://localhost:5173",
@@ -124,7 +132,7 @@ function stripControlCharacters(value: string) {
 }
 
 export function validateFlightQuoteRequest(value: unknown, today: string): { request?: FlightQuoteRequest; idempotencyKey?: string } {
-  if (!isObject(value) || Object.keys(value).some((key) => !["search", "contact", "specialRequests", "idempotencyKey"].includes(key))) return {};
+  if (!isObject(value) || Object.keys(value).some((key) => !["search", "contact", "specialRequests", "idempotencyKey", "turnstileToken"].includes(key))) return {};
   const idempotencyKey = value.idempotencyKey;
   if (typeof idempotencyKey !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idempotencyKey)) return {};
   if (!isObject(value.search) || Object.keys(value.search).some((key) => !["origin", "destination", "departureDate", "returnDate", "tripType", "passengers", "cabinClass"].includes(key))) return {};
@@ -183,6 +191,8 @@ function duplicateFingerprint(hash: string) {
 export function createFlightQuoteHandler(deps: FlightQuoteDependencies) {
   const origins = corsOrigins(deps.allowedOrigins);
   const now = deps.now ?? (() => new Date());
+  const expectedCaptchaHostname = deps.expectedCaptchaHostname ?? EXPECTED_CAPTCHA_HOSTNAME;
+  const expectedCaptchaAction = deps.expectedCaptchaAction ?? EXPECTED_CAPTCHA_ACTION;
   return async (request: Request) => {
     const requestId = crypto.randomUUID();
     const origin = request.headers.get("origin");
@@ -195,16 +205,6 @@ export function createFlightQuoteHandler(deps: FlightQuoteDependencies) {
     const length = Number(request.headers.get("content-length"));
     if (Number.isFinite(length) && length > MAX_BODY_BYTES) return errorResponse(headers, requestId, 413, "REQUEST_TOO_LARGE", "The request is too large.");
 
-    let identity: string;
-    try {
-      identity = await deps.rateLimitIdentity(request);
-      const limit = await deps.rateLimit(identity, LIMIT, WINDOW_SECONDS);
-      if (!limit.allowed) return errorResponse(headers, requestId, 429, "RATE_LIMITED", "Too many requests. Please try again later.", limit.retryAfterSeconds);
-    } catch {
-      console.error(JSON.stringify({ event: "flight_quote_rate_limit_unavailable", requestId }));
-      return errorResponse(headers, requestId, 503, "REQUEST_UNAVAILABLE", "We couldn't process your request. Please try again later.");
-    }
-
     let parsed: unknown;
     try {
       const raw = await readBody(request);
@@ -213,6 +213,37 @@ export function createFlightQuoteHandler(deps: FlightQuoteDependencies) {
     } catch { return errorResponse(headers, requestId, 400, "INVALID_REQUEST", "Check the request details and try again."); }
     const validated = validateFlightQuoteRequest(parsed, now().toISOString().slice(0, 10));
     if (!validated.request || !validated.idempotencyKey) return errorResponse(headers, requestId, 400, "INVALID_REQUEST", "Check your travel and contact details and try again.");
+
+    const suppliedToken = isObject(parsed) ? parsed.turnstileToken : undefined;
+    if (typeof suppliedToken !== "string" || suppliedToken.trim().length === 0 || suppliedToken.length > 2048) {
+      return errorResponse(headers, requestId, 400, "CAPTCHA_REQUIRED", "Complete the verification and try again.");
+    }
+
+    try {
+      const captcha = await deps.verifyCaptcha(suppliedToken);
+      if (!captcha.success || captcha.hostname !== expectedCaptchaHostname || captcha.action !== expectedCaptchaAction) {
+        return errorResponse(headers, requestId, 403, "CAPTCHA_FAILED", "Verification could not be completed. Please try again.");
+      }
+    } catch {
+      console.error(JSON.stringify({ event: "flight_quote_captcha_unavailable", requestId }));
+      return errorResponse(headers, requestId, 503, "REQUEST_UNAVAILABLE", "We couldn't process your request. Please try again later.");
+    }
+
+    // CAPTCHA is checked before either persistent limiter RPC. The address-derived
+    // identity is supplementary abuse control, not an authenticated caller identity.
+    try {
+      const identity = await deps.rateLimitIdentity(request);
+      const addressLimit = await deps.rateLimit(identity, LIMIT, WINDOW_SECONDS);
+      if (!addressLimit.allowed) return errorResponse(headers, requestId, 429, "RATE_LIMITED", "Too many requests. Please try again later.", addressLimit.retryAfterSeconds);
+
+      // This is a second, independent RPC/transaction. Its identity is shared by
+      // all submissions; PostgreSQL serializes each call for this identity.
+      const globalLimit = await deps.rateLimit(GLOBAL_RATE_LIMIT_IDENTITY, GLOBAL_LIMIT, WINDOW_SECONDS);
+      if (!globalLimit.allowed) return errorResponse(headers, requestId, 429, "GLOBAL_RATE_LIMITED", "Quotation requests are temporarily busy. Please try again later.", globalLimit.retryAfterSeconds);
+    } catch {
+      console.error(JSON.stringify({ event: "flight_quote_rate_limit_unavailable", requestId }));
+      return errorResponse(headers, requestId, 503, "REQUEST_UNAVAILABLE", "We couldn't process your request. Please try again later.");
+    }
 
     try {
       const hash = deps.hashRequest

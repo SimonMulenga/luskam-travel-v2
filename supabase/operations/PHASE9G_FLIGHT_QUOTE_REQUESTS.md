@@ -24,6 +24,32 @@ and update only `status` and `internal_notes`, subject to the existing
 `public.has_role` helper and RLS. Customer name/contact, itinerary, idempotency
 key, request hash, and creation fields are not updateable by client roles.
 
+### Anonymous abuse controls
+
+Before any limiter or quotation-persistence RPC, the function verifies a
+single-use Turnstile token with Cloudflare Siteverify. It requires a successful
+response with hostname `luskam-travel-v2.vercel.app` and action
+`flight_quote_request`. Invalid, missing, expired, replayed, mismatched,
+malformed, timed-out, provider-error, or missing-secret cases fail closed
+before database RPCs. The Edge Function secret is `TURNSTILE_SECRET_KEY`; the
+only frontend value is the public `VITE_TURNSTILE_SITE_KEY`. Turnstile is abuse
+protection, not customer authentication.
+
+After Turnstile passes, the function applies a persistent four-per-900-second
+per-address limit and then a global 60-per-900-second limit using a fixed
+namespaced identity. Both call the existing service-only
+`consume_flight_quote_rate_limit` RPC. The migration bounds allow up to 100
+requests and 86,400 seconds, so these limits require no migration. The
+database serializes calls per identity across Edge Function instances. The two
+limiter calls are separate RPCs and transactions, not an atomic combined quota:
+the address slot may be consumed if the global quota is exhausted or its RPC
+fails. CAPTCHA failures consume neither quota. Requests passing both limits
+consume quota before persistence, including duplicates, conflicts, and requests
+that later fail to save. Quota responses return 429 and `Retry-After`; limiter-storage failures
+return 503 and prevent persistence. Caller-supplied IP headers are not trusted
+as authenticated identity; address-based limiting is supplementary and
+`X-Forwarded-For` is ignored.
+
 The function uses dedicated service-role-only RPCs for quote persistence and
 rate limiting. It requires the staging database to have the existing role,
 trigger and private-schema migrations, plus `20261016100000` and the new
@@ -35,10 +61,10 @@ integration, or booking RPC is needed by this flow.
 `supabase/config.toml` sets `verify_jwt = false` only for
 `request-flight-quote`, since anonymous submissions are intentional. The
 handler still validates strict request shape, request size, dates, contact
-fields and UUID idempotency; validates and pseudonymizes the gateway-reported
-IP; applies a persistent four-request exact sliding-window limit; and writes
-only through the service role. Missing or malformed IP metadata and rate-limit
-storage failures are fail-closed. The database serializes request creation
+fields and UUID idempotency; verifies Turnstile; applies persistent
+per-address and global exact sliding-window limits; and writes only through
+the service role. Missing or malformed IP metadata and rate-limit storage
+failures are fail-closed. The database serializes request creation
 with idempotency and canonical-fingerprint advisory locks. Same-key changed
 content conflicts; matching submissions with different keys return the
 existing reference while its private dedupe claim is active. Each matching
@@ -49,21 +75,21 @@ canonical allowlisted payload, including contact fields, with the server-only
 written to logs. Keep this key stable across deployments so retries remain
 consistent during the 15-minute claim window.
 
-**Gateway trust remains a staging blocker.** Supabase documentation identifies
-`cf-connecting-ip` as a captured request header, but does not establish in the
-reviewed material that the gateway strips/replaces caller-supplied values.
-Before public use, verify spoof resistance through an isolated staging
-deployment. If that cannot be established, front the function with a trusted
-gateway that removes untrusted forwarding headers and supplies a verified
-client identity, or keep the submission endpoint disabled. `X-Forwarded-For`
-is not consulted. Rate limiting now avoids fixed-window boundary bursts by
-using a sliding window.
+**Gateway trust remains unverified.** The prior authenticated probe's 403 for a
+forged header did not establish anonymous-call behavior. Per-address limiting
+is supplementary and does not treat the header as identity. Before broad
+public use, resolve gateway provenance or put a trusted proxy in front of the
+endpoint. CAPTCHA and the global quota add abuse controls but do not prove
+header provenance. The function ignores `X-Forwarded-For`.
 CORS defaults to the V2 staging origin and local Vite/preview origins. Optional
 `BOOKING_ALLOWED_ORIGINS` may add exact HTTPS or localhost origins; it cannot
 add wildcard or insecure public HTTP origins. CORS is not an authentication
 boundary.
 
 Supabase platform-provided function variables required at runtime:
+
+- `TURNSTILE_SECRET_KEY` — staging Turnstile Siteverify secret; configure only
+  in Supabase Edge Function secrets and never in Vercel.
 
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
@@ -79,6 +105,7 @@ Frontend Vercel preview environment:
 
 - `VITE_SUPABASE_URL` — staging project URL.
 - `VITE_SUPABASE_PUBLISHABLE_KEY` — staging publishable/anon key only.
+- `VITE_TURNSTILE_SITE_KEY` — public site key for the staging widget.
 
 Never configure a service role key in Vercel frontend variables. FlightAPI
 secrets are not required and should remain absent for this release.
@@ -93,15 +120,19 @@ secrets are not required and should remain absent for this release.
    transaction and ends in `ROLLBACK`.
 4. Set the fingerprint secret in staging only after it has been generated and
    securely stored. Never print it in command history or logs.
-5. Follow `supabase/tests/flight_quote_requests_concurrency.md` using two
+5. Configure a staging Turnstile widget for the staging hostname and action
+   `flight_quote_request`; set `VITE_TURNSTILE_SITE_KEY` in Vercel Preview and
+   `TURNSTILE_SECRET_KEY` in Supabase Function secrets. Never reuse or expose
+   production secret values.
+6. Follow `supabase/tests/flight_quote_requests_concurrency.md` using two
    independent persistent connections. The test intentionally commits one
    synthetic request; perform its narrowly guarded cleanup after verification.
-6. Configure the optional allowed-origin value and deploy only
+7. Configure the optional allowed-origin value and deploy only
    `request-flight-quote` to staging. The function is public by design; no
    FlightAPI, reservation, ticketing, or payment secrets are needed.
-7. Set Vercel Preview Supabase URL and publishable key to staging and deploy
+8. Set Vercel Preview Supabase URL, publishable key, and Turnstile site key to staging and deploy
    the preview only after separate approval.
-8. Submit one synthetic request, verify its reference and staff-only visibility,
+9. Submit one synthetic request, verify its reference and staff-only visibility,
    verify an identical idempotency retry returns the same reference, verify a
    changed payload with the same key returns conflict, and verify the fifth
    request in a window receives HTTP 429. Do not use real customer data.

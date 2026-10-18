@@ -3,9 +3,10 @@
 -- Replace all placeholders. Run in SQL Editor as postgres/supabase_admin. Never COMMIT.
 
 BEGIN;
-SELECT set_config('phase9g.customer_id', 'REPLACE_WITH_SYNTHETIC_CUSTOMER_UUID', true);
-SELECT set_config('phase9g.admin_id', 'REPLACE_WITH_STAGING_ADMIN_UUID', true);
-SELECT set_config('phase9g.agent_id', 'REPLACE_WITH_STAGING_AGENT_UUID', true);
+SELECT set_config('phase9g.customer_id', '2e33f3a7-61e6-4971-8c2e-4dc817df7937', true);
+SELECT set_config('phase9g.admin_id', 'bd29f41b-24a2-48d5-b243-7462ab80fc60', true);
+SELECT set_config('phase9g.agent_id', 'fcae4a89-7e69-4cbb-aa87-b666101fd815', true);
+SELECT set_config('phase9g.role_fixture_id', gen_random_uuid()::text, true);
 SELECT set_config('phase9g.request_idem', gen_random_uuid()::text, true);
 SELECT set_config('phase9g.request_ref', 'LTA-20991231-AAAAAAAAAAAAAAAA', true);
 SELECT set_config('phase9g.request_hash', repeat('g', 43), true);
@@ -45,6 +46,11 @@ BEGIN
      OR NOT EXISTS (SELECT 1 FROM public.user_roles WHERE user_id = current_setting('phase9g.agent_id')::uuid AND role = 'agent'::public.app_role) THEN
     RAISE EXCEPTION 'Configured admin/agent identities do not have their expected roles';
   END IF;
+  IF EXISTS (SELECT 1 FROM public.user_roles
+             WHERE user_id = current_setting('phase9g.customer_id')::uuid
+               AND role = 'user'::public.app_role) THEN
+    RAISE EXCEPTION 'Customer already has the role needed for the isolated admin-removal fixture';
+  END IF;
   IF has_table_privilege('anon', 'public.flight_quote_requests', 'SELECT')
      OR has_table_privilege('anon', 'public.flight_quote_requests', 'INSERT')
      OR has_table_privilege('anon', 'public.flight_quote_requests', 'UPDATE')
@@ -60,11 +66,6 @@ BEGIN
      OR NOT has_column_privilege('authenticated', 'public.flight_quote_requests', 'internal_notes', 'UPDATE') THEN
     RAISE EXCEPTION 'Quotation table privileges do not match the restricted allowlist';
   END IF;
-  IF has_table_privilege('authenticated', 'public.user_roles', 'INSERT')
-     OR has_table_privilege('authenticated', 'public.user_roles', 'UPDATE')
-     OR has_table_privilege('authenticated', 'public.user_roles', 'DELETE') THEN
-    RAISE EXCEPTION 'Authenticated role can mutate user_roles';
-  END IF;
   IF has_function_privilege('anon', 'public.create_flight_quote_request_once(uuid,text,text,text,text,text,date,date,text,integer,integer,integer,text,text,text,text,text)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.create_flight_quote_request_once(uuid,text,text,text,text,text,date,date,text,integer,integer,integer,text,text,text,text,text)', 'EXECUTE')
      OR NOT has_function_privilege('service_role', 'public.create_flight_quote_request_once(uuid,text,text,text,text,text,date,date,text,integer,integer,integer,text,text,text,text,text)', 'EXECUTE')
@@ -72,6 +73,16 @@ BEGIN
      OR has_function_privilege('authenticated', 'public.consume_flight_quote_rate_limit(uuid,integer,integer)', 'EXECUTE') THEN
     RAISE EXCEPTION 'Privileged quotation RPC execution grants are too broad or missing';
   END IF;
+END;
+$$;
+
+-- Prepare one exact synthetic role row for the admin-removal assertion below.
+-- This privileged fixture is inside the transaction and is always rolled back.
+DO $$
+BEGIN
+  INSERT INTO public.user_roles (id, user_id, role)
+  VALUES (current_setting('phase9g.role_fixture_id')::uuid,
+          current_setting('phase9g.customer_id')::uuid, 'user'::public.app_role);
 END;
 $$;
 
@@ -258,6 +269,7 @@ SELECT set_config('request.jwt.claim.sub', current_setting('phase9g.customer_id'
 SELECT set_config('request.jwt.claims', json_build_object('role','authenticated','sub',current_setting('phase9g.customer_id'))::text, true);
 DO $$
 DECLARE found_rows integer; affected integer; escalation_denied boolean := false; direct_write_denied boolean := false;
+  role_write_succeeded boolean; role_rows integer;
 BEGIN
   IF auth.uid() IS DISTINCT FROM current_setting('phase9g.customer_id')::uuid THEN RAISE EXCEPTION 'Customer JWT mismatch'; END IF;
   SELECT count(*) INTO found_rows FROM public.flight_quote_requests;
@@ -296,6 +308,52 @@ BEGIN
   EXCEPTION WHEN SQLSTATE '42501' THEN escalation_denied := true;
   END;
   IF NOT escalation_denied THEN RAISE EXCEPTION 'Customer role escalation was not denied'; END IF;
+
+  -- Accept either a permission denial or an RLS-filtered zero-row result.
+  role_write_succeeded := false;
+  BEGIN
+    UPDATE public.user_roles SET role = 'admin'::public.app_role
+    WHERE id = current_setting('phase9g.role_fixture_id')::uuid
+      AND user_id = auth.uid() AND role = 'user'::public.app_role;
+    GET DIAGNOSTICS role_rows = ROW_COUNT;
+    role_write_succeeded := role_rows > 0;
+  EXCEPTION WHEN SQLSTATE '42501' THEN role_write_succeeded := false;
+  END;
+  IF role_write_succeeded THEN RAISE EXCEPTION 'Customer promoted their own role to admin'; END IF;
+
+  role_write_succeeded := false;
+  BEGIN
+    UPDATE public.user_roles SET role = 'user'::public.app_role
+    WHERE user_id = current_setting('phase9g.agent_id')::uuid
+      AND role = 'agent'::public.app_role;
+    GET DIAGNOSTICS role_rows = ROW_COUNT;
+    role_write_succeeded := role_rows > 0;
+  EXCEPTION WHEN SQLSTATE '42501' THEN role_write_succeeded := false;
+  END;
+  IF role_write_succeeded THEN RAISE EXCEPTION 'Customer modified another user role'; END IF;
+
+  role_rows := 0;
+  BEGIN
+    DELETE FROM public.user_roles
+    WHERE id = current_setting('phase9g.role_fixture_id')::uuid
+      AND user_id = auth.uid() AND role = 'user'::public.app_role;
+    GET DIAGNOSTICS role_rows = ROW_COUNT;
+  EXCEPTION WHEN SQLSTATE '42501' THEN role_rows := 0;
+  END;
+  IF role_rows <> 0 THEN RAISE EXCEPTION 'Customer deleted their own role assignment'; END IF;
+
+  role_rows := 0;
+  BEGIN
+    DELETE FROM public.user_roles
+    WHERE user_id = current_setting('phase9g.agent_id')::uuid
+      AND role = 'agent'::public.app_role;
+    GET DIAGNOSTICS role_rows = ROW_COUNT;
+  EXCEPTION WHEN SQLSTATE '42501' THEN role_rows := 0;
+  END;
+  IF role_rows <> 0 THEN RAISE EXCEPTION 'Customer deleted another user role'; END IF;
+  IF public.has_role(auth.uid(), 'admin'::public.app_role) IS DISTINCT FROM false THEN
+    RAISE EXCEPTION 'Customer unexpectedly has admin role after role-write attempts';
+  END IF;
 END;
 $$;
 RESET ROLE;
@@ -325,6 +383,16 @@ BEGIN
   EXCEPTION WHEN SQLSTATE '42501' THEN denied := true;
   END;
   IF NOT denied THEN RAISE EXCEPTION 'Agent role escalation was not denied'; END IF;
+  changed_rows := 0;
+  BEGIN
+    UPDATE public.user_roles SET role = 'admin'::public.app_role
+    WHERE user_id = auth.uid() AND role = 'agent'::public.app_role;
+    GET DIAGNOSTICS changed_rows = ROW_COUNT;
+  EXCEPTION WHEN SQLSTATE '42501' THEN changed_rows := 0;
+  END;
+  IF changed_rows <> 0 OR public.has_role(auth.uid(), 'admin'::public.app_role) THEN
+    RAISE EXCEPTION 'Agent promoted their own role to admin';
+  END IF;
 END;
 $$;
 RESET ROLE;
@@ -333,7 +401,7 @@ SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', current_setting('phase9g.admin_id'), true);
 SELECT set_config('request.jwt.claims', json_build_object('role','authenticated','sub',current_setting('phase9g.admin_id'))::text, true);
 DO $$
-DECLARE visible_rows integer; changed_rows integer; denied boolean := false;
+DECLARE visible_rows integer; changed_rows integer; denied boolean := false; role_rows integer;
 BEGIN
   SELECT count(*) INTO visible_rows FROM public.flight_quote_requests
   WHERE reference = current_setting('phase9g.request_ref');
@@ -348,8 +416,19 @@ BEGIN
   EXCEPTION WHEN SQLSTATE '42501' THEN denied := true;
   END;
   IF NOT denied THEN RAISE EXCEPTION 'Admin changed a protected idempotency column'; END IF;
+
+  DELETE FROM public.user_roles
+  WHERE id = current_setting('phase9g.role_fixture_id')::uuid
+    AND user_id = current_setting('phase9g.customer_id')::uuid
+    AND role = 'user'::public.app_role;
+  GET DIAGNOSTICS role_rows = ROW_COUNT;
+  IF role_rows <> 1 THEN RAISE EXCEPTION 'Authorized admin could not remove the exact synthetic role fixture'; END IF;
+  IF EXISTS (SELECT 1 FROM public.user_roles
+             WHERE id = current_setting('phase9g.role_fixture_id')::uuid) THEN
+    RAISE EXCEPTION 'Synthetic role fixture remains after authorized admin removal';
+  END IF;
 END;
 $$;
 
-SELECT 'PASS: anonymous/customer isolation; admin/agent workflow access; role escalation and protected columns denied; atomic RPC retry cases passed' AS result;
+SELECT 'PASS: anonymous/customer isolation; customer and agent role escalation denied; admin synthetic role removal permitted; quotation workflow, protected columns and atomic RPC checks passed' AS result;
 ROLLBACK;

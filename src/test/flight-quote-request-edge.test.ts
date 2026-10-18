@@ -10,6 +10,7 @@ const payload = () => ({
   },
   contact: { fullName: "Synthetic Customer", email: "synthetic@example.test", phone: "+260 977 000 000" },
   specialRequests: "Window seat preference", idempotencyKey,
+  turnstileToken: "synthetic-turnstile-token",
 });
 const post = (body: unknown, origin = allowedOrigin) => new Request("https://functions.example/request-flight-quote", {
   method: "POST", headers: { "content-type": "application/json", origin }, body: JSON.stringify(body),
@@ -18,6 +19,7 @@ const post = (body: unknown, origin = allowedOrigin) => new Request("https://fun
 function dependencies(overrides: Partial<FlightQuoteDependencies> = {}) {
   const calls = { rate: vi.fn(async () => ({ allowed: true, retryAfterSeconds: 30 })), save: vi.fn(async (_request: FlightQuoteRequest) => ({ outcome: "created" as const, reference: "LTA-20261110-AB12CD34" })) };
   const deps: FlightQuoteDependencies = {
+    verifyCaptcha: vi.fn(async () => ({ success: true, hostname: "luskam-travel-v2.vercel.app", action: "flight_quote_request" })),
     rateLimitIdentity: vi.fn(async () => "c2d3d310-bfc1-46b3-8761-eabc43f701f8"),
     rateLimit: calls.rate,
     saveRequest: calls.save,
@@ -71,11 +73,26 @@ describe("request-flight-quote Edge Function handler", () => {
     const response = await createFlightQuoteHandler(deps)(post(payload()));
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({ reference: "LTA-20261110-AB12CD34", duplicate: false });
-    expect(calls.rate).toHaveBeenCalledWith(expect.any(String), 4, 900);
+    expect(calls.rate).toHaveBeenNthCalledWith(1, expect.any(String), 4, 900);
+    expect(calls.rate).toHaveBeenNthCalledWith(2, "9f1d9f00-9e00-4c9f-9d00-000000000001", 60, 900);
     expect(calls.save).toHaveBeenCalledWith(expect.objectContaining({
       search: expect.objectContaining({ origin: "LUN", destination: "JNB", tripType: "oneway" }),
       contact: expect.objectContaining({ fullName: "Synthetic Customer", email: "synthetic@example.test" }),
     }), idempotencyKey, expect.stringMatching(/^[A-Za-z0-9_-]{43}$/), expect.stringMatching(/^[A-Za-z0-9_-]{43}$/), expect.stringMatching(/^LTA-20261016-[A-F0-9]{16}$/));
+    expect(JSON.stringify(calls.save.mock.calls)).not.toContain("synthetic-turnstile-token");
+  });
+
+  it("verifies CAPTCHA before address/global limit calls and persistence", async () => {
+    const events: string[] = [];
+    const deps = dependencies({
+      verifyCaptcha: vi.fn(async (token) => { events.push(`captcha:${token}`); return { success: true, hostname: allowedOrigin.slice("https://".length), action: "flight_quote_request" }; }),
+      rateLimitIdentity: vi.fn(async () => { events.push("address_identity"); return "synthetic-address-identity"; }),
+      rateLimit: vi.fn(async (identity) => { events.push(identity === "synthetic-address-identity" ? "address_limit" : "global_limit"); return { allowed: true, retryAfterSeconds: 900 }; }),
+      saveRequest: vi.fn(async () => { events.push("persist"); return { outcome: "created" as const, reference: "LTA-20261016-AB12CD34" }; }),
+    }).deps;
+    const response = await createFlightQuoteHandler(deps)(post(payload()));
+    expect(response.status).toBe(200);
+    expect(events).toEqual(["captcha:synthetic-turnstile-token", "address_identity", "address_limit", "global_limit", "persist"]);
   });
 
   it.each([
@@ -114,6 +131,97 @@ describe("request-flight-quote Edge Function handler", () => {
     expect(response.status).toBe(429);
     expect(response.headers.get("retry-after")).toBe("48");
     expect(calls.save).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["invalid", { success: false }],
+    ["expired", { success: false }],
+    ["replayed", { success: false }],
+    ["wrong hostname", { success: true, hostname: "attacker.example", action: "flight_quote_request" }],
+    ["wrong action", { success: true, hostname: "luskam-travel-v2.vercel.app", action: "other_action" }],
+  ])("rejects %s Turnstile verification before any database RPC", async (_label, result) => {
+    const { deps, calls } = dependencies({ verifyCaptcha: vi.fn(async () => result) });
+    const response = await createFlightQuoteHandler(deps)(post(payload()));
+    expect(response.status).toBe(403);
+    expect(calls.rate).not.toHaveBeenCalled();
+    expect(calls.save).not.toHaveBeenCalled();
+  });
+
+  it("rejects missing CAPTCHA token before Siteverify, rate limits, or persistence", async () => {
+    const { deps, calls } = dependencies();
+    const body = payload();
+    delete (body as Partial<typeof body>).turnstileToken;
+    const response = await createFlightQuoteHandler(deps)(post(body));
+    expect(response.status).toBe(400);
+    expect(deps.verifyCaptcha).not.toHaveBeenCalled();
+    expect(calls.rate).not.toHaveBeenCalled();
+    expect(calls.save).not.toHaveBeenCalled();
+  });
+
+  it("fails safely when CAPTCHA provider returns malformed data or is unavailable", async () => {
+    for (const verifyCaptcha of [vi.fn(async () => { throw new Error("provider response with sensitive details"); })]) {
+      const { deps, calls } = dependencies({ verifyCaptcha });
+      const log = vi.spyOn(console, "error").mockImplementation(() => {});
+      const response = await createFlightQuoteHandler(deps)(post(payload()));
+      expect(response.status).toBe(503);
+      expect(await response.text()).not.toContain("sensitive details");
+      expect(calls.rate).not.toHaveBeenCalled();
+      expect(calls.save).not.toHaveBeenCalled();
+      log.mockRestore();
+    }
+
+    const { deps, calls } = dependencies({ verifyCaptcha: vi.fn(async () => ({ success: true })) });
+    const malformed = await createFlightQuoteHandler(deps)(post(payload()));
+    expect(malformed.status).toBe(403);
+    expect(calls.rate).not.toHaveBeenCalled();
+    expect(calls.save).not.toHaveBeenCalled();
+  });
+
+  it("returns global quota 429 with Retry-After without creating a quotation", async () => {
+    const rateLimit = vi.fn()
+      .mockResolvedValueOnce({ allowed: true, retryAfterSeconds: 900 })
+      .mockResolvedValueOnce({ allowed: false, retryAfterSeconds: 73 });
+    const { deps, calls } = dependencies({ rateLimit });
+    const response = await createFlightQuoteHandler(deps)(post(payload()));
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("73");
+    expect(rateLimit).toHaveBeenCalledTimes(2);
+    expect(calls.save).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when global limiter storage fails after the address slot is consumed", async () => {
+    const rateLimit = vi.fn()
+      .mockResolvedValueOnce({ allowed: true, retryAfterSeconds: 900 })
+      .mockRejectedValueOnce(new Error("private storage detail"));
+    const { deps, calls } = dependencies({ rateLimit });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const response = await createFlightQuoteHandler(deps)(post(payload()));
+    expect(response.status).toBe(503);
+    expect(rateLimit).toHaveBeenCalledTimes(2);
+    expect(calls.save).not.toHaveBeenCalled();
+    expect(await response.text()).not.toContain("private storage detail");
+    log.mockRestore();
+  });
+
+  it("atomically limits concurrent submissions against the shared global identity", async () => {
+    let globalCount = 0;
+    const rateLimit = vi.fn(async (identity: string) => {
+      if (identity !== "9f1d9f00-9e00-4c9f-9d00-000000000001") return { allowed: true, retryAfterSeconds: 900 };
+      // Models the serialization and limit decision made by the database RPC.
+      if (globalCount >= 60) return { allowed: false, retryAfterSeconds: 900 };
+      globalCount += 1;
+      return { allowed: true, retryAfterSeconds: 900 };
+    });
+    const { deps, calls } = dependencies({ rateLimit });
+    const handler = createFlightQuoteHandler(deps);
+    const responses = await Promise.all(Array.from({ length: 61 }, (_, index) => {
+      const req = post({ ...payload(), idempotencyKey: `d38a4c60-93b2-4fe1-9a12-${String(index).padStart(12, "0")}` });
+      req.headers.set("cf-connecting-ip", `198.51.100.${(index % 254) + 1}`);
+      return handler(req);
+    }));
+    expect(responses.filter((response) => response.status === 200)).toHaveLength(60);
+    expect(responses.filter((response) => response.status === 429)).toHaveLength(1);
+    expect(calls.save).toHaveBeenCalledTimes(60);
   });
 
   it("fails closed when persistent rate-limit storage is unavailable", async () => {

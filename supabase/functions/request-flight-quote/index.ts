@@ -1,10 +1,12 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { createFlightQuoteHandler, gatewayReportedClientAddress, type FlightQuoteRequest } from "./handler.ts";
 import { rateLimitIdentityFromAddress } from "../_shared/rateLimitIdentity.ts";
+import { verifyTurnstileToken } from "./turnstile.ts";
 
 const url = Deno.env.get("SUPABASE_URL");
 const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const fingerprintSecret = Deno.env.get("FLIGHT_QUOTE_FINGERPRINT_SECRET");
+const turnstileSecret = Deno.env.get("TURNSTILE_SECRET_KEY");
 const encoder = new TextEncoder();
 async function fingerprintRequest(request: FlightQuoteRequest) {
   if (!fingerprintSecret || fingerprintSecret.length < 32) throw new Error("request service unavailable");
@@ -18,6 +20,7 @@ const defaultClient = () => {
 };
 
 const handler = createFlightQuoteHandler({
+  verifyCaptcha: (token) => verifyTurnstileToken(token, turnstileSecret),
   rateLimitIdentity: async (request) => {
     const address = gatewayReportedClientAddress(request);
     if (!address || !serviceKey) throw new Error("rate limit identity unavailable");
@@ -30,8 +33,9 @@ const handler = createFlightQuoteHandler({
       p_max_requests: maxRequests,
       p_window_seconds: windowSeconds,
     });
-    if (error || !data || typeof data.allowed !== "boolean") throw new Error("rate limiter unavailable");
-    return { allowed: data.allowed, retryAfterSeconds: Number(data.retry_after_seconds) || windowSeconds };
+    if (error || !data || typeof data.allowed !== "boolean"
+      || !Number.isInteger(data.retry_after_seconds) || data.retry_after_seconds < 1) throw new Error("rate limiter unavailable");
+    return { allowed: data.allowed, retryAfterSeconds: data.retry_after_seconds };
   },
   saveRequest: async (request: FlightQuoteRequest, idempotencyKey, requestHash, dedupeKey, reference) => {
     const { data, error } = await defaultClient().rpc("create_flight_quote_request_once", {
