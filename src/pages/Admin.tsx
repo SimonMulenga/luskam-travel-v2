@@ -10,6 +10,7 @@ import { useRoles, type AppRole } from "@/hooks/useRoles";
 import { toast } from "sonner";
 import { FlightPricing } from "@/components/admin/FlightPricing";
 import { FlightQuoteRequests } from "@/components/admin/FlightQuoteRequests";
+import { KakandeRequests } from "@/components/admin/KakandeRequests";
 import { SiteContentEditor } from "@/components/admin/SiteContentEditor";
 import { BlogManager } from "@/components/admin/BlogManager";
 import { SubscribersList } from "@/components/admin/SubscribersList";
@@ -29,7 +30,7 @@ interface Booking {
   details: Record<string, unknown>;
 }
 interface RoleRow { id: string; user_id: string; role: AppRole; created_at: string; email?: string; full_name?: string }
-type Tab = "bookings" | "flight-quotes" | "team" | "pricing" | "content" | "blog" | "subscribers";
+type Tab = "bookings" | "flight-quotes" | "kakande" | "team" | "pricing" | "content" | "blog" | "subscribers";
 
 const serviceLabels: Record<string, string> = { flight: "Flight", hotel: "Hotel", car: "Car hire", visa: "Visa", kakande: "Kakande trip", package: "Package", transfer: "Transfer", insurance: "Insurance" };
 
@@ -82,6 +83,7 @@ const AdminPage = () => {
   const tabs: { id: Tab; label: string; icon: typeof Package; adminOnly?: boolean }[] = [
     { id: "bookings", label: "Bookings", icon: Package },
     { id: "flight-quotes", label: "Flight quotes", icon: Plane },
+    { id: "kakande", label: "Kakande Ministries", icon: Users },
     { id: "pricing", label: "Flight pricing", icon: SlidersHorizontal },
     { id: "content", label: "Website content", icon: FileText, adminOnly: true },
     { id: "blog", label: "Blog", icon: BookOpen, adminOnly: true },
@@ -153,6 +155,8 @@ const AdminPage = () => {
       </section>}
 
       {tab === "flight-quotes" && <div className="mt-5 overflow-hidden rounded-3xl border border-border/70 bg-white shadow-sm"><FlightQuoteRequests /></div>}
+
+      {tab === "kakande" && <div className="mt-5 overflow-hidden rounded-3xl border border-border/70 bg-white shadow-sm"><KakandeRequests /></div>}
 
       {tab === "pricing" && <div className="mt-5 min-w-0 rounded-3xl border border-border/70 bg-white p-4 shadow-sm sm:p-6"><div className="mb-4 flex items-center gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/5 text-primary"><SlidersHorizontal className="h-5 w-5" /></span><div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-accent">Fare controls</p><h2 className="break-words font-semibold text-primary">Flight pricing &amp; markup</h2></div></div><FlightPricing canEdit={isAdmin} /></div>}
       {tab === "content" && isAdmin && <Panel title="Website content" eyebrow="Site settings" icon={<FileText className="h-5 w-5" />}><SiteContentEditor /></Panel>}

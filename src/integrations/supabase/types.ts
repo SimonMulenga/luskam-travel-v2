@@ -916,6 +916,72 @@ export type Database = {
         }
         Relationships: []
       }
+      kakande_ministry_requests: {
+        Row: {
+          created_at: string
+          currency_code: string
+          customer_email: string
+          customer_name: string
+          customer_notes: string
+          customer_phone: string
+          id: string
+          internal_notes: string
+          option_id: string
+          price_per_traveller_zmw: number
+          reference: string
+          status: string
+          total_quoted_amount_zmw: number
+          travel_date: string
+          travel_mode: string
+          traveller_count: number
+          trip_id: string
+          trip_month: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          currency_code?: string
+          customer_email: string
+          customer_name: string
+          customer_notes?: string
+          customer_phone: string
+          id?: string
+          internal_notes?: string
+          option_id: string
+          price_per_traveller_zmw: number
+          reference: string
+          status?: string
+          total_quoted_amount_zmw?: never
+          travel_date: string
+          travel_mode: string
+          traveller_count: number
+          trip_id: string
+          trip_month: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          currency_code?: string
+          customer_email?: string
+          customer_name?: string
+          customer_notes?: string
+          customer_phone?: string
+          id?: string
+          internal_notes?: string
+          option_id?: string
+          price_per_traveller_zmw?: number
+          reference?: string
+          status?: string
+          total_quoted_amount_zmw?: never
+          travel_date?: string
+          travel_mode?: string
+          traveller_count?: number
+          trip_id?: string
+          trip_month?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       site_content: {
         Row: {
           key: string
