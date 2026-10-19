@@ -44,9 +44,9 @@ const requestBody = (patch: Record<string, unknown> = {}) => ({
   turnstileToken: "synthetic-single-use-token",
   ...patch,
 });
-const post = (body: unknown) => new Request("https://functions.example/request-kakande-trip", {
+const post = (body: unknown, authorization?: string) => new Request("https://functions.example/request-kakande-trip", {
   method: "POST",
-  headers: { "content-type": "application/json", origin: "https://luskam-travel-v2.vercel.app", "cf-connecting-ip": "198.51.100.44" },
+  headers: { "content-type": "application/json", origin: "https://luskam-travel-v2.vercel.app", "cf-connecting-ip": "198.51.100.44", ...(authorization ? { authorization } : {}) },
   body: JSON.stringify(body),
 });
 
@@ -102,12 +102,14 @@ describe("request-kakande-trip handler", () => {
       expect.any(String),
       expect.any(String),
       expect.any(String),
+      null,
     );
   });
 
   it("rejects client-supplied passport or price fields instead of collecting/trusting them", () => {
     expect(validateKakandeRequest(requestBody({ passport: "SYNTHETIC-PASSPORT" })).request).toBeNull();
     expect(validateKakandeRequest(requestBody({ pricePerTravellerZmw: 1, totalQuotedAmountZmw: 2 })).request).toBeNull();
+    expect(validateKakandeRequest(requestBody({ user_id: "2e33f3a7-61e6-4971-8c2e-4dc817df7937" })).request).toBeNull();
   });
 
   it("rejects invalid customer data before CAPTCHA, quota, or persistence", async () => {
@@ -154,7 +156,28 @@ describe("request-kakande-trip handler", () => {
     expect(order.indexOf("captcha")).toBeLessThan(order.indexOf("rate"));
     expect(order.indexOf("rate")).toBeLessThan(order.indexOf("persist"));
     expect(deps.hashRequest).toHaveBeenCalledWith(expect.objectContaining({ travellers: 2 }));
-    expect(deps.saveRequest).toHaveBeenCalledWith(expect.any(Object), tripSnapshot, expect.any(String), "a".repeat(43), expect.any(String));
+    expect(deps.saveRequest).toHaveBeenCalledWith(expect.any(Object), tripSnapshot, expect.any(String), "a".repeat(43), expect.any(String), null);
+  });
+
+  it("persists only the UID returned by Supabase Auth verification", async () => {
+    const userId = "2e33f3a7-61e6-4971-8c2e-4dc817df7937";
+    const { deps } = dependencies({ verifyAccessToken: vi.fn(async () => userId) });
+    const response = await createKakandeTripHandler(deps)(post(requestBody(), "Bearer synthetic-access-token"));
+    expect(response.status).toBe(200);
+    expect(deps.verifyAccessToken).toHaveBeenCalledWith("synthetic-access-token");
+    expect(deps.saveRequest).toHaveBeenCalledWith(expect.any(Object), tripSnapshot, expect.any(String), "a".repeat(43), expect.any(String), userId);
+  });
+
+  it.each([
+    ["expired token", vi.fn(async () => null), 401, "INVALID_AUTH_TOKEN"],
+    ["unavailable Auth verification", vi.fn(async () => { throw new Error("synthetic auth outage"); }), 503, "AUTH_VERIFICATION_UNAVAILABLE"],
+  ])("rejects %s without downgrading to anonymous", async (_label, verifyAccessToken, status, code) => {
+    const { deps } = dependencies({ verifyAccessToken });
+    const response = await createKakandeTripHandler(deps)(post(requestBody(), "Bearer synthetic-token"));
+    expect(response.status).toBe(status);
+    expect((await response.json()).error.code).toBe(code);
+    expect(deps.verifyCaptcha).not.toHaveBeenCalled();
+    expect(deps.saveRequest).not.toHaveBeenCalled();
   });
 
   it("returns the original reference for a same-key duplicate retry", async () => {

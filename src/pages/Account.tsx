@@ -8,6 +8,7 @@ import { Footer } from "@/components/Footer";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { bookingStatus, paymentStatus, statusToneClass } from "@/lib/bookingStatus";
+import MyRequests from "@/components/account/MyRequests";
 
 interface Booking {
   id: string;
@@ -102,6 +103,8 @@ const AccountPage = () => {
         <Stat icon={<Clock3 className="h-4 w-4" />} label="Requests in review" value={fetching ? "—" : String(pendingCount)} />
         <Stat icon={<CheckCircle2 className="h-4 w-4" />} label="Payments marked received" value={fetching ? "—" : String(paidCount)} />
       </div>
+
+      <MyRequests key={user.id} userId={user.id} />
 
       {loadError && <div role="alert" className="mt-5 rounded-2xl border border-rose-200 bg-white p-4 text-sm text-rose-800">{loadError}</div>}
 

@@ -4,11 +4,13 @@ import { createKakandeTripHandler, type SavedTripSnapshot, type TripSnapshot } f
 import { gatewayReportedAddress } from "./validation.ts";
 import { verifyKakandeTurnstile } from "./turnstile.ts";
 import type { KakandeTripRequest } from "./validation.ts";
+import { verifyCustomerAccessToken } from "../_shared/verifyCustomerAccessToken.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const turnstileSecret = Deno.env.get("TURNSTILE_SECRET_KEY");
 const fingerprintSecret = Deno.env.get("KAKANDE_REQUEST_FINGERPRINT_SECRET");
+const authApiKey = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY");
 const encoder = new TextEncoder();
 
 async function hmac(value: string) {
@@ -35,6 +37,10 @@ async function rateLimit(identity: string, maxRequests: number, windowSeconds: n
 const allowedOrigins = (Deno.env.get("KAKANDE_ALLOWED_ORIGINS") ?? "").split(",").map((value) => value.trim()).filter(Boolean);
 
 Deno.serve(createKakandeTripHandler({
+  verifyAccessToken: async (token) => {
+    if (!supabaseUrl || !authApiKey) throw new Error("auth verification unavailable");
+    return verifyCustomerAccessToken(supabaseUrl, authApiKey, token);
+  },
   verifyCaptcha: (token) => verifyKakandeTurnstile(token, turnstileSecret),
   resolveTrip: async (tripId, mode) => {
     const { data, error } = await client().rpc("get_kakande_trip_option", { p_trip_id: tripId, p_mode: mode });
@@ -60,8 +66,8 @@ Deno.serve(createKakandeTripHandler({
   },
   rateLimit,
   hashRequest: (request: KakandeTripRequest) => hmac(`luskam-kakande-request-fingerprint-v2:${JSON.stringify(request)}`),
-  saveRequest: async (request, trip, idempotencyKey, requestHash, reference) => {
-    const { data, error } = await client().rpc("create_kakande_ministry_request_once", {
+  saveRequest: async (request, trip, idempotencyKey, requestHash, reference, userId) => {
+    const { data, error } = await client().rpc("create_kakande_ministry_request_once_for_customer", {
       p_idempotency_key: idempotencyKey,
       p_request_hash: requestHash,
       p_dedupe_key: requestHash,
@@ -75,6 +81,7 @@ Deno.serve(createKakandeTripHandler({
       p_customer_email: request.email,
       p_customer_phone: request.phone,
       p_customer_notes: request.notes,
+      p_user_id: userId,
     });
     if (error || !data || !["created", "duplicate", "conflict", "trip_unavailable", "trip_changed"].includes(data.outcome)) return { outcome: "failed" as const };
     let snapshot: SavedTripSnapshot | undefined;

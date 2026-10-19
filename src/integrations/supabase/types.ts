@@ -885,6 +885,7 @@ export type Database = {
           status: string
           trip_type: string
           updated_at: string
+          user_id: string | null
         }
         Insert: {
           adults: number
@@ -909,6 +910,7 @@ export type Database = {
           status?: string
           trip_type: string
           updated_at?: string
+          user_id?: string | null
         }
         Update: {
           internal_notes?: string
@@ -937,6 +939,7 @@ export type Database = {
           trip_id: string
           trip_month: string
           updated_at: string
+          user_id: string | null
         }
         Insert: {
           created_at?: string
@@ -958,6 +961,7 @@ export type Database = {
           trip_id: string
           trip_month: string
           updated_at?: string
+          user_id?: string | null
         }
         Update: {
           created_at?: string
@@ -1087,6 +1091,80 @@ export type Database = {
       request_booking_cancellation: {
         Args: { p_booking_id: string }
         Returns: undefined
+      }
+      my_flight_quote_requests: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          reference: string
+          created_at: string
+          origin: string
+          destination: string
+          departure_date: string
+          return_date: string | null
+          trip_type: string
+          adults: number
+          children: number
+          infants: number
+          cabin_class: string
+          status: string
+        }[]
+      }
+      my_kakande_ministry_requests: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          reference: string
+          created_at: string
+          trip_month: string
+          travel_mode: string
+          travel_date: string
+          price_per_traveller_zmw: number
+          traveller_count: number
+          total_quoted_amount_zmw: number
+          currency_code: string
+          status: string
+        }[]
+      }
+      create_flight_quote_request_once_for_customer: {
+        Args: {
+          p_idempotency_key: string
+          p_request_hash: string
+          p_dedupe_key: string
+          p_reference: string
+          p_origin: string
+          p_destination: string
+          p_departure_date: string
+          p_return_date: string | null
+          p_trip_type: string
+          p_adults: number
+          p_children: number
+          p_infants: number
+          p_cabin_class: string
+          p_customer_name: string
+          p_customer_email: string
+          p_customer_phone: string
+          p_special_requests: string
+          p_user_id: string | null
+        }
+        Returns: Json
+      }
+      create_kakande_ministry_request_once_for_customer: {
+        Args: {
+          p_idempotency_key: string
+          p_request_hash: string
+          p_dedupe_key: string
+          p_reference: string
+          p_trip_id: string
+          p_mode: string
+          p_travellers: number
+          p_trip_updated_at: string
+          p_option_updated_at: string
+          p_customer_name: string
+          p_customer_email: string
+          p_customer_phone: string
+          p_customer_notes: string
+          p_user_id: string | null
+        }
+        Returns: Json
       }
     }
     Enums: {

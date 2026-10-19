@@ -2,11 +2,13 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { createFlightQuoteHandler, gatewayReportedClientAddress, type FlightQuoteRequest } from "./handler.ts";
 import { rateLimitIdentityFromAddress } from "../_shared/rateLimitIdentity.ts";
 import { verifyTurnstileToken } from "./turnstile.ts";
+import { verifyCustomerAccessToken } from "../_shared/verifyCustomerAccessToken.ts";
 
 const url = Deno.env.get("SUPABASE_URL");
 const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const fingerprintSecret = Deno.env.get("FLIGHT_QUOTE_FINGERPRINT_SECRET");
 const turnstileSecret = Deno.env.get("TURNSTILE_SECRET_KEY");
+const authApiKey = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY");
 const encoder = new TextEncoder();
 async function fingerprintRequest(request: FlightQuoteRequest) {
   if (!fingerprintSecret || fingerprintSecret.length < 32) throw new Error("request service unavailable");
@@ -20,6 +22,10 @@ const defaultClient = () => {
 };
 
 const handler = createFlightQuoteHandler({
+  verifyAccessToken: async (token) => {
+    if (!url || !authApiKey) throw new Error("auth verification unavailable");
+    return verifyCustomerAccessToken(url, authApiKey, token);
+  },
   verifyCaptcha: (token) => verifyTurnstileToken(token, turnstileSecret),
   rateLimitIdentity: async (request) => {
     const address = gatewayReportedClientAddress(request);
@@ -37,8 +43,8 @@ const handler = createFlightQuoteHandler({
       || !Number.isInteger(data.retry_after_seconds) || data.retry_after_seconds < 1) throw new Error("rate limiter unavailable");
     return { allowed: data.allowed, retryAfterSeconds: data.retry_after_seconds };
   },
-  saveRequest: async (request: FlightQuoteRequest, idempotencyKey, requestHash, dedupeKey, reference) => {
-    const { data, error } = await defaultClient().rpc("create_flight_quote_request_once", {
+  saveRequest: async (request: FlightQuoteRequest, idempotencyKey, requestHash, dedupeKey, reference, userId) => {
+    const { data, error } = await defaultClient().rpc("create_flight_quote_request_once_for_customer", {
       p_idempotency_key: idempotencyKey,
       p_request_hash: requestHash,
       p_dedupe_key: dedupeKey,
@@ -56,6 +62,7 @@ const handler = createFlightQuoteHandler({
       p_customer_email: request.contact.email,
       p_customer_phone: request.contact.phone,
       p_special_requests: request.specialRequests,
+      p_user_id: userId,
     });
     if (error || !data || !["created", "duplicate", "conflict"].includes(data.outcome)) {
       return { outcome: "failed" as const };

@@ -12,8 +12,8 @@ const payload = () => ({
   specialRequests: "Window seat preference", idempotencyKey,
   turnstileToken: "synthetic-turnstile-token",
 });
-const post = (body: unknown, origin = allowedOrigin) => new Request("https://functions.example/request-flight-quote", {
-  method: "POST", headers: { "content-type": "application/json", origin }, body: JSON.stringify(body),
+const post = (body: unknown, origin = allowedOrigin, authorization?: string) => new Request("https://functions.example/request-flight-quote", {
+  method: "POST", headers: { "content-type": "application/json", origin, ...(authorization ? { authorization } : {}) }, body: JSON.stringify(body),
 });
 
 function dependencies(overrides: Partial<FlightQuoteDependencies> = {}) {
@@ -78,7 +78,7 @@ describe("request-flight-quote Edge Function handler", () => {
     expect(calls.save).toHaveBeenCalledWith(expect.objectContaining({
       search: expect.objectContaining({ origin: "LUN", destination: "JNB", tripType: "oneway" }),
       contact: expect.objectContaining({ fullName: "Synthetic Customer", email: "synthetic@example.test" }),
-    }), idempotencyKey, expect.stringMatching(/^[A-Za-z0-9_-]{43}$/), expect.stringMatching(/^[A-Za-z0-9_-]{43}$/), expect.stringMatching(/^LTA-20261016-[A-F0-9]{16}$/));
+    }), idempotencyKey, expect.stringMatching(/^[A-Za-z0-9_-]{43}$/), expect.stringMatching(/^[A-Za-z0-9_-]{43}$/), expect.stringMatching(/^LTA-20261016-[A-F0-9]{16}$/), null);
     expect(JSON.stringify(calls.save.mock.calls)).not.toContain("synthetic-turnstile-token");
   });
 
@@ -93,6 +93,27 @@ describe("request-flight-quote Edge Function handler", () => {
     const response = await createFlightQuoteHandler(deps)(post(payload()));
     expect(response.status).toBe(200);
     expect(events).toEqual(["captcha:synthetic-turnstile-token", "address_identity", "address_limit", "global_limit", "persist"]);
+  });
+
+  it("persists only the UID returned by Auth token verification", async () => {
+    const userId = "2e33f3a7-61e6-4971-8c2e-4dc817df7937";
+    const { deps, calls } = dependencies({ verifyAccessToken: vi.fn(async () => userId) });
+    const response = await createFlightQuoteHandler(deps)(post(payload(), allowedOrigin, "Bearer synthetic-access-token"));
+    expect(response.status).toBe(200);
+    expect(deps.verifyAccessToken).toHaveBeenCalledWith("synthetic-access-token");
+    expect(calls.save).toHaveBeenCalledWith(expect.any(Object), idempotencyKey, expect.any(String), expect.any(String), expect.any(String), userId);
+  });
+
+  it.each([
+    ["expired token", vi.fn(async () => null), 401, "INVALID_AUTH_TOKEN"],
+    ["unavailable Auth verification", vi.fn(async () => { throw new Error("synthetic auth outage"); }), 503, "AUTH_VERIFICATION_UNAVAILABLE"],
+  ])("rejects %s without downgrading to anonymous", async (_label, verifyAccessToken, status, code) => {
+    const { deps, calls } = dependencies({ verifyAccessToken });
+    const response = await createFlightQuoteHandler(deps)(post(payload(), allowedOrigin, "Bearer synthetic-token"));
+    expect(response.status).toBe(status);
+    expect((await response.json()).error.code).toBe(code);
+    expect(deps.verifyCaptcha).not.toHaveBeenCalled();
+    expect(calls.save).not.toHaveBeenCalled();
   });
 
   it.each([

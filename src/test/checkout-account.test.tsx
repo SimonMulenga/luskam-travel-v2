@@ -47,7 +47,7 @@ describe("premium checkout and account", () => {
     submitFlightRequestMock.mockReset().mockResolvedValue({ id: "booking-id", reference: "LKSERVER1" });
     getSessionMock.mockReset().mockResolvedValue({ data: { session: { user: { id: "customer-1" } } } });
     fromMock.mockReset();
-    rpcMock.mockReset().mockResolvedValue({ error: null });
+    rpcMock.mockReset().mockResolvedValue({ data: [], error: null });
     signOutMock.mockReset();
   });
 
@@ -161,6 +161,9 @@ describe("premium checkout and account", () => {
     expect(screen.queryByText(/Mobile Money|MTN \/ Airtel|Bank transfer|Lusaka office/i)).not.toBeInTheDocument();
     expect(screen.getAllByText(/Payment alone does not mean a ticket has been issued/i).length).toBeGreaterThan(0);
     expect(fromMock).toHaveBeenCalledWith("bookings");
+    expect(await screen.findByRole("heading", { name: "My requests" })).toBeInTheDocument();
+    expect(rpcMock).toHaveBeenCalledWith("my_flight_quote_requests");
+    expect(rpcMock).toHaveBeenCalledWith("my_kakande_ministry_requests");
     expect(profileQuery.eq).toHaveBeenCalledWith("id", "customer-1");
     expect(bookingQuery.order).toHaveBeenCalledWith("created_at", { ascending: false });
   });

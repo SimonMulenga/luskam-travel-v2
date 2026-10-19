@@ -32,7 +32,8 @@ export type KakandeDependencies = {
   rateLimitIdentity: (request: Request) => Promise<string>;
   rateLimit: (identity: string, limit: number, windowSeconds: number) => Promise<RateResult>;
   hashRequest: (request: KakandeTripRequest) => Promise<string>;
-  saveRequest: (request: KakandeTripRequest, trip: TripSnapshot, idempotencyKey: string, hash: string, reference: string) => Promise<SaveResult>;
+  saveRequest: (request: KakandeTripRequest, trip: TripSnapshot, idempotencyKey: string, hash: string, reference: string, userId: string | null) => Promise<SaveResult>;
+  verifyAccessToken?: (token: string) => Promise<string | null>;
   allowedOrigins?: string[];
   now?: () => Date;
 };
@@ -106,6 +107,19 @@ export function createKakandeTripHandler(deps: KakandeDependencies) {
     } catch { return error(request, origins, 400, "INVALID_REQUEST", "Check the request details and try again."); }
     const validated = validateKakandeRequest(body);
     if (!validated.request || !validated.idempotencyKey) return error(request, origins, 400, "INVALID_REQUEST", "Check the request details and try again.");
+    let userId: string | null = null;
+    const authorization = request.headers.get("authorization");
+    if (authorization !== null) {
+      const match = /^Bearer ([^\s,]+)$/i.exec(authorization.trim());
+      if (!match) return error(request, origins, 401, "INVALID_AUTH_TOKEN", "Sign in again or remove the invalid authorization token.");
+      if (!deps.verifyAccessToken) return error(request, origins, 503, "AUTH_VERIFICATION_UNAVAILABLE", "We couldn't verify your sign-in. Please try again.");
+      try { userId = await deps.verifyAccessToken(match[1]); }
+      catch { return error(request, origins, 503, "AUTH_VERIFICATION_UNAVAILABLE", "We couldn't verify your sign-in. Please try again."); }
+      if (!userId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(userId)) {
+        return error(request, origins, 401, "INVALID_AUTH_TOKEN", "Sign in again or remove the invalid authorization token.");
+      }
+      userId = userId.toLowerCase();
+    }
     if (!validated.turnstileToken) return error(request, origins, 400, "CAPTCHA_REQUIRED", "Complete verification and try again.");
 
     let captcha: { success: boolean; hostname?: string; action?: string };
@@ -150,7 +164,7 @@ export function createKakandeTripHandler(deps: KakandeDependencies) {
       const requestHash = await deps.hashRequest(validated.request);
       const now = deps.now?.() ?? new Date();
       const reference = `KMR-${now.toISOString().slice(0, 10).replaceAll("-", "")}-${crypto.randomUUID().replaceAll("-", "").slice(0, 16).toUpperCase()}`;
-      const saved = await deps.saveRequest(validated.request, trip, validated.idempotencyKey, requestHash, reference);
+      const saved = await deps.saveRequest(validated.request, trip, validated.idempotencyKey, requestHash, reference, userId);
       if (saved.outcome === "trip_unavailable") return error(request, origins, 409, "TRIP_UNAVAILABLE", "This trip is no longer available. Contact the travel team for upcoming dates.");
       if (saved.outcome === "trip_changed") return error(request, origins, 409, "TRIP_CHANGED", "This trip option changed. Refresh the page and try again.");
       if (saved.outcome === "conflict") return error(request, origins, 409, "REQUEST_CONFLICT", "This submission key was used for different request details. Start a new request.");

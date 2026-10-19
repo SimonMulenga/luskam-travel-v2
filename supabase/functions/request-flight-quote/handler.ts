@@ -19,7 +19,8 @@ export type FlightQuoteDependencies = {
   rateLimitIdentity: (request: Request) => Promise<string>;
   rateLimit: (identity: string, maxRequests: number, windowSeconds: number) => Promise<{ allowed: boolean; retryAfterSeconds: number }>;
   hashRequest?: (request: FlightQuoteRequest) => Promise<string>;
-  saveRequest: (request: FlightQuoteRequest, idempotencyKey: string, requestHash: string, dedupeKey: string, reference: string) => Promise<SavedRequest>;
+  saveRequest: (request: FlightQuoteRequest, idempotencyKey: string, requestHash: string, dedupeKey: string, reference: string, userId: string | null) => Promise<SavedRequest>;
+  verifyAccessToken?: (token: string) => Promise<string | null>;
   allowedOrigins?: string[];
   expectedCaptchaHostname?: string;
   expectedCaptchaAction?: string;
@@ -214,6 +215,20 @@ export function createFlightQuoteHandler(deps: FlightQuoteDependencies) {
     const validated = validateFlightQuoteRequest(parsed, now().toISOString().slice(0, 10));
     if (!validated.request || !validated.idempotencyKey) return errorResponse(headers, requestId, 400, "INVALID_REQUEST", "Check your travel and contact details and try again.");
 
+    let userId: string | null = null;
+    const authorization = request.headers.get("authorization");
+    if (authorization !== null) {
+      const match = /^Bearer ([^\s,]+)$/i.exec(authorization.trim());
+      if (!match) return errorResponse(headers, requestId, 401, "INVALID_AUTH_TOKEN", "Sign in again or remove the invalid authorization token.");
+      if (!deps.verifyAccessToken) return errorResponse(headers, requestId, 503, "AUTH_VERIFICATION_UNAVAILABLE", "We couldn't verify your sign-in. Please try again.");
+      try { userId = await deps.verifyAccessToken(match[1]); }
+      catch { return errorResponse(headers, requestId, 503, "AUTH_VERIFICATION_UNAVAILABLE", "We couldn't verify your sign-in. Please try again."); }
+      if (!userId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(userId)) {
+        return errorResponse(headers, requestId, 401, "INVALID_AUTH_TOKEN", "Sign in again or remove the invalid authorization token.");
+      }
+      userId = userId.toLowerCase();
+    }
+
     const suppliedToken = isObject(parsed) ? parsed.turnstileToken : undefined;
     if (typeof suppliedToken !== "string" || suppliedToken.trim().length === 0 || suppliedToken.length > 2048) {
       return errorResponse(headers, requestId, 400, "CAPTCHA_REQUIRED", "Complete the verification and try again.");
@@ -252,7 +267,7 @@ export function createFlightQuoteHandler(deps: FlightQuoteDependencies) {
       const timestamp = now();
       const dedupeKey = await duplicateFingerprint(hash);
       const reference = `LTA-${timestamp.toISOString().slice(0, 10).replaceAll("-", "")}-${crypto.randomUUID().replaceAll("-", "").slice(0, 16).toUpperCase()}`;
-      const result = await deps.saveRequest(validated.request, validated.idempotencyKey, hash, dedupeKey, reference);
+      const result = await deps.saveRequest(validated.request, validated.idempotencyKey, hash, dedupeKey, reference, userId);
       if (result.outcome === "conflict") return errorResponse(headers, requestId, 409, "REQUEST_CONFLICT", "This submission key was already used for different request details. Start a new request.");
       if ((result.outcome === "created" || result.outcome === "duplicate") && result.reference) {
         return response({ reference: result.reference, duplicate: result.outcome === "duplicate" }, 200, headers);
