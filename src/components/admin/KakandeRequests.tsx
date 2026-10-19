@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { format, parseISO } from "date-fns";
 import { Bus, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { KakandeTripManagement } from "@/components/admin/KakandeTripManagement";
 
 type KakandeRequest = {
   id: string;
@@ -29,7 +30,7 @@ const statusLabels: Record<KakandeRequest["status"], string> = {
 const formatAmount = (amount: number) =>
   new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(amount));
 
-export const KakandeRequests = () => {
+export const KakandeRequests = ({ canManageTrips = false }: { canManageTrips?: boolean }) => {
   const [requests, setRequests] = useState<KakandeRequest[]>([]);
   const [page, setPage] = useState(0);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -152,6 +153,7 @@ export const KakandeRequests = () => {
           </footer>
         </>
       )}
+      {canManageTrips && <KakandeTripManagement />}
     </section>
   );
 };

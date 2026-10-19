@@ -156,7 +156,7 @@ const AdminPage = () => {
 
       {tab === "flight-quotes" && <div className="mt-5 overflow-hidden rounded-3xl border border-border/70 bg-white shadow-sm"><FlightQuoteRequests /></div>}
 
-      {tab === "kakande" && <div className="mt-5 overflow-hidden rounded-3xl border border-border/70 bg-white shadow-sm"><KakandeRequests /></div>}
+      {tab === "kakande" && <div className="mt-5 overflow-hidden rounded-3xl border border-border/70 bg-white shadow-sm"><KakandeRequests canManageTrips={isAdmin} /></div>}
 
       {tab === "pricing" && <div className="mt-5 min-w-0 rounded-3xl border border-border/70 bg-white p-4 shadow-sm sm:p-6"><div className="mb-4 flex items-center gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/5 text-primary"><SlidersHorizontal className="h-5 w-5" /></span><div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-accent">Fare controls</p><h2 className="break-words font-semibold text-primary">Flight pricing &amp; markup</h2></div></div><FlightPricing canEdit={isAdmin} /></div>}
       {tab === "content" && isAdmin && <Panel title="Website content" eyebrow="Site settings" icon={<FileText className="h-5 w-5" />}><SiteContentEditor /></Panel>}

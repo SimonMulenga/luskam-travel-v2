@@ -1036,6 +1036,34 @@ export type Database = {
         }
         Returns: boolean
       }
+      list_kakande_monthly_trips: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          trip_id: string
+          month_label: string
+          is_published: boolean
+          created_at: string
+          updated_at: string
+          flight_option: Json
+          road_option: Json
+        }[]
+      }
+      save_kakande_monthly_trip: {
+        Args: {
+          p_trip_id: string
+          p_month_label: string
+          p_trip_published: boolean
+          p_flight_date: string
+          p_flight_price_zmw: number
+          p_flight_published: boolean
+          p_flight_availability: string
+          p_road_date: string
+          p_road_price_zmw: number
+          p_road_published: boolean
+          p_road_availability: string
+        }
+        Returns: Json
+      }
       request_booking_cancellation: {
         Args: { p_booking_id: string }
         Returns: undefined

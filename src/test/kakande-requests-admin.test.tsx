@@ -3,15 +3,16 @@ import { format, parseISO } from "date-fns";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { KakandeRequests } from "@/components/admin/KakandeRequests";
 
-const { fromMock, selectMock, orderMock, secondOrderMock, rangeMock } = vi.hoisted(() => ({
+const { fromMock, selectMock, orderMock, secondOrderMock, rangeMock, rpcMock } = vi.hoisted(() => ({
   fromMock: vi.fn(),
   selectMock: vi.fn(),
   orderMock: vi.fn(),
   secondOrderMock: vi.fn(),
   rangeMock: vi.fn(),
+  rpcMock: vi.fn(),
 }));
 
-vi.mock("@/integrations/supabase/client", () => ({ supabase: { from: fromMock } }));
+vi.mock("@/integrations/supabase/client", () => ({ supabase: { from: fromMock, rpc: rpcMock } }));
 
 const fixture = (overrides: Record<string, unknown> = {}) => ({
   id: "4c155ce5-1845-4b50-beb9-f314e35f236b",
@@ -36,6 +37,7 @@ const rows = (count: number, start = 0) => Array.from({ length: count }, (_, ind
 describe("admin Kakande request list", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    rpcMock.mockResolvedValue({ data: [], error: null });
     fromMock.mockReturnValue({ select: selectMock });
     selectMock.mockReturnValue({ order: orderMock });
     orderMock.mockReturnValue({ order: secondOrderMock });
@@ -117,5 +119,20 @@ describe("admin Kakande request list", () => {
     fireEvent.click(screen.getByRole("button", { name: "Previous page" }));
     expect(await screen.findByText("Page 1 of 2")).toBeInTheDocument();
     expect(rangeMock).toHaveBeenNthCalledWith(3, 0, 24);
+  });
+
+  it("does not mount or call the trip-management RPC for an agent request-list view", async () => {
+    rangeMock.mockResolvedValue({ data: [], error: null, count: 0 });
+    render(<KakandeRequests canManageTrips={false} />);
+    await screen.findByText(/No Kakande requests yet/);
+    expect(screen.queryByRole("heading", { name: "Manage trips" })).not.toBeInTheDocument();
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it("loads trip configuration only when the parent grants the administrator capability", async () => {
+    rangeMock.mockResolvedValue({ data: [], error: null, count: 0 });
+    render(<KakandeRequests canManageTrips />);
+    expect(await screen.findByRole("heading", { name: "Manage trips" })).toBeInTheDocument();
+    expect(rpcMock).toHaveBeenCalledWith("list_kakande_monthly_trips");
   });
 });

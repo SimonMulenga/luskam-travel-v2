@@ -13,7 +13,7 @@ vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ user: access.user, loading
 vi.mock("@/hooks/useRoles", () => ({ useRoles: () => ({ isAdmin: access.isAdmin, isAgent: access.isAgent, loading: false }) }));
 vi.mock("@/components/Header", () => ({ Header: () => null }));
 vi.mock("@/components/Footer", () => ({ Footer: () => null }));
-vi.mock("@/components/admin/KakandeRequests", () => ({ KakandeRequests: () => <div>Kakande list marker</div> }));
+vi.mock("@/components/admin/KakandeRequests", () => ({ KakandeRequests: ({ canManageTrips }: { canManageTrips: boolean }) => <div>Kakande list marker{canManageTrips && <div>Manage Trips marker</div>}</div> }));
 vi.mock("@/components/admin/FlightQuoteRequests", () => ({ FlightQuoteRequests: () => <div>Flight quotes marker</div> }));
 vi.mock("@/components/admin/FlightPricing", () => ({ FlightPricing: () => null }));
 vi.mock("@/components/admin/SiteContentEditor", () => ({ SiteContentEditor: () => null }));
@@ -61,6 +61,7 @@ describe("existing admin dashboard Kakande tab access", () => {
     expect(screen.getByText("Flight quotes marker")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Kakande Ministries" }));
     expect(screen.getByText("Kakande list marker")).toBeInTheDocument();
+    expect(screen.queryByText("Manage Trips marker")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Bookings" }));
     expect(screen.getByRole("heading", { name: "Booking requests" })).toBeInTheDocument();
     agentView.unmount();
@@ -69,5 +70,7 @@ describe("existing admin dashboard Kakande tab access", () => {
     access.isAgent = true;
     renderAdmin();
     expect(await screen.findByRole("button", { name: "Kakande Ministries" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Kakande Ministries" }));
+    expect(screen.getByText("Manage Trips marker")).toBeInTheDocument();
   });
 });
