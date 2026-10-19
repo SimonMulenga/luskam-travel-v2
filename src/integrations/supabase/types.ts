@@ -918,6 +918,36 @@ export type Database = {
         }
         Relationships: []
       }
+      flight_quotations: {
+        Row: { id: string; request_id: string; revision: number; status: string; currency_code: string; subtotal_zmw: number; total_zmw: number; created_by: string | null; issued_by: string | null; created_at: string; issued_at: string | null; valid_until: string | null }
+        Insert: { id?: string; request_id: string; revision: number; status?: string; currency_code?: string; subtotal_zmw?: number; total_zmw?: number; created_by?: string | null; issued_by?: string | null; created_at?: string; issued_at?: string | null; valid_until?: string | null }
+        Update: { id?: string; request_id?: string; revision?: number; status?: string; currency_code?: string; subtotal_zmw?: number; total_zmw?: number; created_by?: string | null; issued_by?: string | null; created_at?: string; issued_at?: string | null; valid_until?: string | null }
+        Relationships: []
+      }
+      flight_quotation_items: {
+        Row: { id: string; quotation_id: string; item_order: number; description: string; quantity: number; unit_amount_zmw: number; line_total_zmw: number }
+        Insert: { id?: string; quotation_id: string; item_order: number; description: string; quantity: number; unit_amount_zmw: number; line_total_zmw?: never }
+        Update: { id?: string; quotation_id?: string; item_order?: number; description?: string; quantity?: number; unit_amount_zmw?: number; line_total_zmw?: never }
+        Relationships: []
+      }
+      flight_quotation_events: {
+        Row: { id: string; quotation_id: string; actor_id: string | null; event_type: string; from_status: string | null; to_status: string; details: Json; created_at: string }
+        Insert: { id?: string; quotation_id: string; actor_id?: string | null; event_type: string; from_status?: string | null; to_status: string; details?: Json; created_at?: string }
+        Update: { id?: string; quotation_id?: string; actor_id?: string | null; event_type?: string; from_status?: string | null; to_status?: string; details?: Json; created_at?: string }
+        Relationships: []
+      }
+      flight_quote_bookings: {
+        Row: { id: string; quotation_id: string; request_id: string; customer_id: string | null; status: string; supplier_confirmation_reference: string | null; ticket_number: string | null; created_at: string; updated_at: string }
+        Insert: { id?: string; quotation_id: string; request_id: string; customer_id?: string | null; status?: string; supplier_confirmation_reference?: string | null; ticket_number?: string | null; created_at?: string; updated_at?: string }
+        Update: { id?: string; quotation_id?: string; request_id?: string; customer_id?: string | null; status?: string; supplier_confirmation_reference?: string | null; ticket_number?: string | null; created_at?: string; updated_at?: string }
+        Relationships: []
+      }
+      flight_quote_booking_events: {
+        Row: { id: string; booking_id: string; actor_id: string | null; event_type: string; from_status: string | null; to_status: string; staff_note: string; created_at: string }
+        Insert: { id?: string; booking_id: string; actor_id?: string | null; event_type: string; from_status?: string | null; to_status: string; staff_note?: string; created_at?: string }
+        Update: { id?: string; booking_id?: string; actor_id?: string | null; event_type?: string; from_status?: string | null; to_status?: string; staff_note?: string; created_at?: string }
+        Relationships: []
+      }
       kakande_ministry_requests: {
         Row: {
           created_at: string
@@ -1091,6 +1121,21 @@ export type Database = {
       request_booking_cancellation: {
         Args: { p_booking_id: string }
         Returns: undefined
+      }
+      create_flight_quotation_draft: { Args: { p_request_id: string; p_items: Json }; Returns: string }
+      edit_flight_quotation_draft: { Args: { p_quotation_id: string; p_items: Json }; Returns: undefined }
+      revise_flight_quotation: { Args: { p_quotation_id: string; p_items: Json }; Returns: string }
+      issue_flight_quotation: { Args: { p_quotation_id: string }; Returns: Json }
+      expire_flight_quotation: { Args: { p_quotation_id: string }; Returns: boolean }
+      respond_to_flight_quotation: { Args: { p_quotation_id: string; p_accept: boolean }; Returns: Json }
+      update_flight_quote_booking_status: { Args: { p_booking_id: string; p_status: string; p_staff_note?: string; p_supplier_confirmation_reference?: string | null; p_ticket_number?: string | null }; Returns: Json }
+      my_flight_quotations: {
+        Args: Record<PropertyKey, never>
+        Returns: { quotation_id: string; request_reference: string; revision: number; status: string; currency_code: string; subtotal_zmw: number; total_zmw: number; issued_at: string | null; valid_until: string | null; origin: string; destination: string; departure_date: string; return_date: string | null; trip_type: string; adults: number; children: number; infants: number; cabin_class: string; items: Json }[]
+      }
+      my_flight_quote_bookings: {
+        Args: Record<PropertyKey, never>
+        Returns: { booking_id: string; quotation_id: string; request_reference: string; status: string; created_at: string; updated_at: string; origin: string; destination: string; departure_date: string; return_date: string | null; trip_type: string; adults: number; children: number; infants: number; cabin_class: string }[]
       }
       my_flight_quote_requests: {
         Args: Record<PropertyKey, never>

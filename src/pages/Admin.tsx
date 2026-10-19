@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { format } from "date-fns";
-import { Activity, BadgeCheck, BookOpen, CalendarDays, ChevronRight, CircleDollarSign, FileText, Loader2, Mail, Package, RefreshCw, Shield, SlidersHorizontal, Trash2, UserPlus, Users, WalletCards, Plane } from "lucide-react";
+import { Activity, BadgeCheck, BookOpen, CalendarDays, ChevronRight, CircleDollarSign, FileText, Loader2, Mail, Package, RefreshCw, Shield, SlidersHorizontal, Trash2, UserPlus, Users, WalletCards, Plane, TicketCheck } from "lucide-react";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { supabase } from "@/integrations/supabase/client";
@@ -10,6 +10,7 @@ import { useRoles, type AppRole } from "@/hooks/useRoles";
 import { toast } from "sonner";
 import { FlightPricing } from "@/components/admin/FlightPricing";
 import { FlightQuoteRequests } from "@/components/admin/FlightQuoteRequests";
+import { FlightQuotationOperations } from "@/components/admin/FlightQuotationOperations";
 import { KakandeRequests } from "@/components/admin/KakandeRequests";
 import { SiteContentEditor } from "@/components/admin/SiteContentEditor";
 import { BlogManager } from "@/components/admin/BlogManager";
@@ -30,7 +31,7 @@ interface Booking {
   details: Record<string, unknown>;
 }
 interface RoleRow { id: string; user_id: string; role: AppRole; created_at: string; email?: string; full_name?: string }
-type Tab = "bookings" | "flight-quotes" | "kakande" | "team" | "pricing" | "content" | "blog" | "subscribers";
+type Tab = "bookings" | "flight-quotes" | "flight-operations" | "kakande" | "team" | "pricing" | "content" | "blog" | "subscribers";
 
 const serviceLabels: Record<string, string> = { flight: "Flight", hotel: "Hotel", car: "Car hire", visa: "Visa", kakande: "Kakande trip", package: "Package", transfer: "Transfer", insurance: "Insurance" };
 
@@ -83,6 +84,7 @@ const AdminPage = () => {
   const tabs: { id: Tab; label: string; icon: typeof Package; adminOnly?: boolean }[] = [
     { id: "bookings", label: "Bookings", icon: Package },
     { id: "flight-quotes", label: "Flight quotes", icon: Plane },
+    { id: "flight-operations", label: "Quote workflow", icon: TicketCheck },
     { id: "kakande", label: "Kakande Ministries", icon: Users },
     { id: "pricing", label: "Flight pricing", icon: SlidersHorizontal },
     { id: "content", label: "Website content", icon: FileText, adminOnly: true },
@@ -155,6 +157,8 @@ const AdminPage = () => {
       </section>}
 
       {tab === "flight-quotes" && <div className="mt-5 overflow-hidden rounded-3xl border border-border/70 bg-white shadow-sm"><FlightQuoteRequests /></div>}
+
+      {tab === "flight-operations" && <div className="mt-5 overflow-hidden rounded-3xl border border-border/70 bg-white shadow-sm"><FlightQuotationOperations /></div>}
 
       {tab === "kakande" && <div className="mt-5 overflow-hidden rounded-3xl border border-border/70 bg-white shadow-sm"><KakandeRequests canManageTrips={isAdmin} canUpdateRequests={isAdmin || isAgent} canApproveRequests={isAdmin} /></div>}
 
