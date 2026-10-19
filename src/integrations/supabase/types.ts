@@ -1048,6 +1048,18 @@ export type Database = {
           road_option: Json
         }[]
       }
+      list_public_kakande_trip_options: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          trip_id: string
+          option_id: string
+          month_label: string
+          transport_mode: string
+          departure_date: string
+          price_per_traveller_zmw: number
+          availability: string
+        }[]
+      }
       save_kakande_monthly_trip: {
         Args: {
           p_trip_id: string

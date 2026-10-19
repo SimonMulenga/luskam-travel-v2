@@ -1,4 +1,5 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { format, parseISO } from "date-fns";
 import { z } from "zod";
 import { toast } from "sonner";
 import { Plane, Bus, Phone, CheckCircle2, FileCheck, Syringe, Activity } from "lucide-react";
@@ -24,19 +25,56 @@ interface MonthlyTrip {
   roadDateIso: string;
   priceFlight: number;
   priceRoad: number;
-  status: "Open" | "Filling fast" | "Closed";
+}
+
+interface PublicTripOption {
+  trip_id: string;
+  option_id: string;
+  month_label: string;
+  transport_mode: "flight" | "road";
+  departure_date: string;
+  price_per_traveller_zmw: number;
+  availability: "open" | "filling_fast";
+}
+
+interface PublicTripGroup {
+  tripId: string;
+  monthLabel: string;
+  options: PublicTripOption[];
 }
 
 const TRIPS: MonthlyTrip[] = [
-  { id: "jun-2026", month: "June 2026", flightDate: "10 June 2026", roadDate: "8 June 2026", flightDateIso: "2026-06-10", roadDateIso: "2026-06-08", priceFlight: 10950, priceRoad: 4500, status: "Open" },
-  { id: "jul-2026", month: "July 2026", flightDate: "10 July 2026", roadDate: "8 July 2026", flightDateIso: "2026-07-10", roadDateIso: "2026-07-08", priceFlight: 11200, priceRoad: 4700, status: "Open" },
-  { id: "aug-2026", month: "August 2026", flightDate: "10 August 2026", roadDate: "8 August 2026", flightDateIso: "2026-08-10", roadDateIso: "2026-08-08", priceFlight: 11200, priceRoad: 4700, status: "Filling fast" },
-  { id: "sep-2026", month: "September 2026", flightDate: "10 September 2026", roadDate: "8 September 2026", flightDateIso: "2026-09-10", roadDateIso: "2026-09-08", priceFlight: 11500, priceRoad: 4900, status: "Open" },
+  { id: "jun-2026", month: "June 2026", flightDate: "10 June 2026", roadDate: "8 June 2026", flightDateIso: "2026-06-10", roadDateIso: "2026-06-08", priceFlight: 10950, priceRoad: 4500 },
+  { id: "jul-2026", month: "July 2026", flightDate: "10 July 2026", roadDate: "8 July 2026", flightDateIso: "2026-07-10", roadDateIso: "2026-07-08", priceFlight: 11200, priceRoad: 4700 },
+  { id: "aug-2026", month: "August 2026", flightDate: "10 August 2026", roadDate: "8 August 2026", flightDateIso: "2026-08-10", roadDateIso: "2026-08-08", priceFlight: 11200, priceRoad: 4700 },
+  { id: "sep-2026", month: "September 2026", flightDate: "10 September 2026", roadDate: "8 September 2026", flightDateIso: "2026-09-10", roadDateIso: "2026-09-08", priceFlight: 11500, priceRoad: 4900 },
 ];
 
-function isTripExpired(trip: MonthlyTrip, mode: "flight" | "road", today = new Date().toISOString().slice(0, 10)) {
-  return (mode === "flight" ? trip.flightDateIso : trip.roadDateIso) <= today;
-}
+const canonicalMonth = /^(January|February|March|April|May|June|July|August|September|October|November|December) \d{4}$/;
+const isValidIsoDate = (value: string) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = parseISO(value);
+  return !Number.isNaN(parsed.getTime()) && format(parsed, "yyyy-MM-dd") === value;
+};
+const normalizePublicOptions = (value: unknown): PublicTripOption[] => {
+  if (!Array.isArray(value)) return [];
+  const today = new Date().toISOString().slice(0, 10);
+  return value.filter((item): item is PublicTripOption => {
+    if (!item || typeof item !== "object") return false;
+    const option = item as Partial<PublicTripOption>;
+    return typeof option.trip_id === "string" && /^[a-z0-9-]{1,32}$/.test(option.trip_id)
+      && typeof option.option_id === "string" && option.option_id.length > 0
+      && typeof option.month_label === "string" && canonicalMonth.test(option.month_label)
+      && (option.transport_mode === "flight" || option.transport_mode === "road")
+      && typeof option.departure_date === "string" && isValidIsoDate(option.departure_date) && option.departure_date > today
+      && typeof option.price_per_traveller_zmw === "number" && Number.isFinite(option.price_per_traveller_zmw)
+      && option.price_per_traveller_zmw > 0 && option.price_per_traveller_zmw < 10_000_000_000
+      && (option.availability === "open" || option.availability === "filling_fast");
+  });
+};
+
+const formatAvailability = (availability: PublicTripOption["availability"]) =>
+  availability === "filling_fast" ? "Filling fast" : "Open";
 
 const requirements = [
   { icon: FileCheck, title: "Passport", body: "Valid for at least 6 months beyond your travel date." },
@@ -63,8 +101,11 @@ const schema = z.object({
 });
 
 const Kakande = () => {
-  const [tripId, setTripId] = useState<string>(TRIPS[0].id);
+  const [tripId, setTripId] = useState<string>("");
   const [mode, setMode] = useState<"flight" | "road">("flight");
+  const [publicOptions, setPublicOptions] = useState<PublicTripOption[]>([]);
+  const [listingLoading, setListingLoading] = useState(true);
+  const [listingError, setListingError] = useState(false);
   const [travellers, setTravellers] = useState<string>("1");
   const [submitted, setSubmitted] = useState<string | null>(null);
   const [waMessage, setWaMessage] = useState<string>("");
@@ -75,10 +116,51 @@ const Kakande = () => {
 
   const handleTurnstileToken = useCallback((token: string | null) => setTurnstileToken(token), []);
 
-  const trip = useMemo(() => TRIPS.find((t) => t.id === tripId)!, [tripId]);
-  const tripExpired = isTripExpired(trip, mode);
-  const pricePer = mode === "flight" ? trip.priceFlight : trip.priceRoad;
-  const total = pricePer * Number(travellers || 1);
+  const loadPublicOptions = useCallback(async () => {
+    setListingLoading(true);
+    setListingError(false);
+    try {
+      const { data, error } = await supabase.rpc("list_public_kakande_trip_options");
+      if (error || !Array.isArray(data)) throw new Error("public_trip_listing_unavailable");
+      setPublicOptions(normalizePublicOptions(data));
+    } catch {
+      setPublicOptions([]);
+      setTripId("");
+      setListingError(true);
+    } finally {
+      setListingLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void loadPublicOptions(); }, [loadPublicOptions]);
+
+  useEffect(() => {
+    if (listingLoading || listingError) return;
+    if (publicOptions.some((option) => option.trip_id === tripId && option.transport_mode === mode)) return;
+    const first = publicOptions[0];
+    setTripId(first?.trip_id ?? "");
+    if (first) setMode(first.transport_mode);
+    idempotencyKey.current = null;
+  }, [listingError, listingLoading, mode, publicOptions, tripId]);
+
+  const selectedOption = useMemo(
+    () => publicOptions.find((option) => option.trip_id === tripId && option.transport_mode === mode) ?? null,
+    [mode, publicOptions, tripId],
+  );
+  const selectedTripOptions = useMemo(
+    () => publicOptions.filter((option) => option.trip_id === tripId),
+    [publicOptions, tripId],
+  );
+  const publicTrips = useMemo(() => {
+    const groups = new Map<string, PublicTripGroup>();
+    for (const option of publicOptions) {
+      const group = groups.get(option.trip_id) ?? { tripId: option.trip_id, monthLabel: option.month_label, options: [] };
+      group.options.push(option);
+      groups.set(option.trip_id, group);
+    }
+    return [...groups.values()];
+  }, [publicOptions]);
+  const total = selectedOption ? selectedOption.price_per_traveller_zmw * Number(travellers || 1) : 0;
 
   const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -88,8 +170,8 @@ const Kakande = () => {
       phone: String(fd.get("phone") || ""),
       email: String(fd.get("email") || ""),
       travellers,
-      tripId,
-      mode,
+      tripId: selectedOption?.trip_id ?? "",
+      mode: selectedOption?.transport_mode ?? mode,
       notes: String(fd.get("notes") || ""),
     };
     const result = schema.safeParse(data);
@@ -97,8 +179,8 @@ const Kakande = () => {
       toast.error(result.error.issues[0]?.message ?? "Please check the form");
       return;
     }
-    if (tripExpired) {
-      toast.error("This trip has passed. Contact the travel team for upcoming dates.");
+    if (!selectedOption) {
+      toast.error("Select a currently available trip option before submitting.");
       return;
     }
     if (!turnstileToken) {
@@ -184,44 +266,59 @@ const Kakande = () => {
             <div className="lg:col-span-2">
               <h2 className="text-xl font-semibold text-primary">Monthly trips</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                The currently listed departures have passed. No new trip dates or prices have been published.
+                Future dates and prices appear here only after an administrator publishes them. The request is subject to a final availability check.
               </p>
               <div className="mt-5 space-y-3">
-                {TRIPS.map((t) => {
-                  const active = t.id === tripId;
-                  return (
-                    <button
-                      key={t.id}
-                      type="button"
-                      onClick={() => { idempotencyKey.current = null; setTripId(t.id); }}
-                      aria-pressed={active}
-                      className={`flex w-full flex-col rounded-2xl border p-4 text-left transition duration-200 ${
-                        active ? "border-primary bg-primary/5 shadow-sm" : "border-border/70 bg-white hover:border-primary/40 hover:shadow-sm"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-base font-semibold text-foreground">{t.month}</span>
-                        <span className="text-xs text-muted-foreground">{isTripExpired(t, mode) ? "Closed · departure date has passed" : t.status}</span>
-                      </div>
-                      <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
-                        <div className="flex items-center gap-2">
-                          <Plane className="h-4 w-4 text-primary" />
+                {listingLoading && <p role="status" className="rounded-2xl border border-border/70 bg-white p-4 text-sm text-muted-foreground">Loading published trip options…</p>}
+                {listingError && <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800"><p>Published trip options could not be loaded. Please try again.</p><Button type="button" variant="outline" onClick={() => void loadPublicOptions()} className="mt-3">Retry</Button></div>}
+                {!listingLoading && !listingError && publicTrips.length === 0 && <p role="status" className="rounded-2xl border border-border/70 bg-white p-4 text-sm text-muted-foreground">No future trip options are currently published.</p>}
+                {publicTrips.map((group) => {
+                  const active = group.tripId === tripId;
+                  return <button
+                    key={group.tripId}
+                    type="button"
+                    onClick={() => {
+                      idempotencyKey.current = null;
+                      setTripId(group.tripId);
+                      if (!group.options.some((option) => option.transport_mode === mode)) setMode(group.options[0].transport_mode);
+                    }}
+                    aria-pressed={active}
+                    className={`flex w-full flex-col rounded-2xl border p-4 text-left transition duration-200 ${
+                      active ? "border-primary bg-primary/5 shadow-sm" : "border-border/70 bg-white hover:border-primary/40 hover:shadow-sm"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-base font-semibold text-foreground">{group.monthLabel}</span>
+                      <span className="text-xs text-muted-foreground">Published · available</span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+                      {group.options.map((option) => {
+                        const Icon = option.transport_mode === "flight" ? Plane : Bus;
+                        return <div key={option.option_id} className="flex items-center gap-2">
+                          <Icon className="h-4 w-4 shrink-0 text-primary" />
                           <div>
-                            <div className="font-medium text-foreground">K{t.priceFlight.toLocaleString()} <span className="text-xs font-normal text-muted-foreground">past listed price</span></div>
-                            <div className="text-xs text-muted-foreground">{t.flightDate}</div>
+                            <div className="font-medium text-foreground">By {option.transport_mode} · ZMW {option.price_per_traveller_zmw.toLocaleString()} <span className="text-xs font-normal text-muted-foreground">per traveller</span></div>
+                            <div className="text-xs text-muted-foreground">{format(parseISO(option.departure_date), "d MMMM yyyy")} · {formatAvailability(option.availability)}</div>
                           </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Bus className="h-4 w-4 text-primary" />
-                          <div>
-                            <div className="font-medium text-foreground">K{t.priceRoad.toLocaleString()} <span className="text-xs font-normal text-muted-foreground">past listed price</span></div>
-                            <div className="text-xs text-muted-foreground">{t.roadDate}</div>
-                          </div>
-                        </div>
-                      </div>
-                    </button>
-                  );
+                        </div>;
+                      })}
+                    </div>
+                  </button>;
                 })}
+              </div>
+              <h3 className="mt-8 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Historical listed departures</h3>
+              <p className="mt-1 text-xs text-muted-foreground">These dates have passed. Their displayed prices are historical and cannot be selected for a new request.</p>
+              <div className="mt-3 space-y-3">
+                {TRIPS.map((t) => <article key={t.id} className="flex w-full flex-col rounded-2xl border border-border/70 bg-white p-4 text-left">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-base font-semibold text-foreground">{t.month}</span>
+                    <span className="text-xs text-muted-foreground">Closed · departure dates have passed</span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                    <div className="flex items-center gap-2"><Plane className="h-4 w-4 text-primary" /><div><div className="font-medium text-foreground">K{t.priceFlight.toLocaleString()} <span className="text-xs font-normal text-muted-foreground">past listed price</span></div><div className="text-xs text-muted-foreground">{t.flightDate}</div></div></div>
+                    <div className="flex items-center gap-2"><Bus className="h-4 w-4 text-primary" /><div><div className="font-medium text-foreground">K{t.priceRoad.toLocaleString()} <span className="text-xs font-normal text-muted-foreground">past listed price</span></div><div className="text-xs text-muted-foreground">{t.roadDate}</div></div></div>
+                  </div>
+                </article>)}
               </div>
             </div>
 
@@ -272,76 +369,49 @@ const Kakande = () => {
               ) : (
                 <div className="rounded-3xl border border-border/70 bg-white p-5 shadow-sm sm:p-6">
                   <h3 className="text-lg font-semibold text-primary">Reservation details</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Selected: <span className="font-medium text-foreground">{trip.month}</span> ·
-                    <span className="font-medium text-foreground"> {mode === "flight" ? trip.flightDate : trip.roadDate}</span>
-                  </p>
-                  {tripExpired && <p role="status" className="mt-2 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">This listed departure date has passed. No upcoming trip dates have been published yet.</p>}
-
-                  <form onSubmit={onSubmit} onChange={() => { idempotencyKey.current = null; }} className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div className="sm:col-span-2">
-                      <Label>Travel mode</Label>
-                      <RadioGroup
-                        value={mode}
-                        onValueChange={(v) => { idempotencyKey.current = null; setMode(v as "flight" | "road"); }}
-                        className="mt-2 grid grid-cols-2 gap-3"
-                      >
-                        <label className={`flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border p-3 transition ${mode === "flight" ? "border-primary bg-primary/5" : "border-border bg-background hover:border-primary/40"}`}>
-                          <RadioGroupItem value="flight" id="m-flight" />
-                          <Plane className="h-4 w-4 text-primary" />
-                          <span className="text-sm font-medium">By flight · K{trip.priceFlight.toLocaleString()}</span>
-                        </label>
-                        <label className={`flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border p-3 transition ${mode === "road" ? "border-primary bg-primary/5" : "border-border bg-background hover:border-primary/40"}`}>
-                          <RadioGroupItem value="road" id="m-road" />
-                          <Bus className="h-4 w-4 text-primary" />
-                          <span className="text-sm font-medium">By road · K{trip.priceRoad.toLocaleString()}</span>
-                        </label>
-                      </RadioGroup>
-                    </div>
-
-                    <div>
-                      <Label htmlFor="fullName">Full name</Label>
-                      <Input id="fullName" name="fullName" required maxLength={80} placeholder="Your full name" />
-                    </div>
-                    <div>
-                      <Label htmlFor="phone">Phone number</Label>
-                      <Input id="phone" name="phone" required maxLength={20} placeholder="+260…" />
-                    </div>
-                    <div>
-                      <Label htmlFor="email">Email</Label>
-                      <Input id="email" name="email" type="email" required maxLength={120} placeholder="you@example.com" />
-                    </div>
-                    <div>
-                      <Label>Travellers</Label>
-                      <Select value={travellers} onValueChange={(value) => { idempotencyKey.current = null; setTravellers(value); }}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
-                            <SelectItem key={n} value={String(n)}>{n}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label>{tripExpired ? "Current price" : "Total (estimate)"}</Label>
-                      <div className="mt-1 rounded-xl border border-border bg-background px-3 py-2.5 text-sm font-semibold text-foreground">
-                        {tripExpired ? "Not available — listed trip has passed" : `K${total.toLocaleString()} ZMW`}
-                      </div>
-                    </div>
-                    <div className="sm:col-span-2">
-                      <Label htmlFor="notes">Notes (optional)</Label>
-                      <Textarea id="notes" name="notes" maxLength={400} placeholder="Dietary needs, room preferences, accessibility…" />
-                    </div>
-                    <div className="sm:col-span-2"><TurnstileWidget action="kakande_trip_request" onToken={handleTurnstileToken} resetKey={turnstileResetKey} /></div>
-                    <Button type="submit" disabled={submitting || !turnstileToken || tripExpired} className="sm:col-span-2 mt-2 min-h-12 w-full rounded-full bg-accent text-accent-foreground transition hover:bg-[hsl(var(--accent-hover))] disabled:cursor-not-allowed disabled:opacity-60">
-                      {submitting ? "Submitting…" : "Send trip request"}
-                    </Button>
-                    <p className="sm:col-span-2 mt-0 text-xs text-muted-foreground">
-                    Submitting sends an inquiry only and does not reserve a place. The team will confirm availability, any applicable price, and required documents before discussing payment.
+                  {!selectedOption ? <p role="status" className="mt-2 rounded-xl bg-slate-50 p-4 text-sm text-muted-foreground">{listingLoading ? "Loading published options…" : listingError ? "Trip options are temporarily unavailable. Please retry the list." : "Choose a currently published future trip option to continue."}</p> : <>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Selected: <span className="font-medium text-foreground">{selectedOption.month_label}</span> ·
+                      <span className="font-medium text-foreground"> {format(parseISO(selectedOption.departure_date), "d MMMM yyyy")}</span>
                     </p>
-                  </form>
+                    <form onSubmit={onSubmit} onChange={() => { idempotencyKey.current = null; }} className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div className="sm:col-span-2">
+                        <Label>Travel mode</Label>
+                        <RadioGroup value={mode} onValueChange={(value) => { idempotencyKey.current = null; setMode(value as "flight" | "road"); }} className="mt-2 grid grid-cols-2 gap-3">
+                          {(["flight", "road"] as const).map((optionMode) => {
+                            const option = selectedTripOptions.find((candidate) => candidate.transport_mode === optionMode);
+                            const Icon = optionMode === "flight" ? Plane : Bus;
+                            return <label key={optionMode} className={`flex min-h-12 items-center gap-3 rounded-xl border p-3 transition ${mode === optionMode ? "border-primary bg-primary/5" : "border-border bg-background"} ${option ? "cursor-pointer hover:border-primary/40" : "cursor-not-allowed opacity-50"}`}>
+                              <RadioGroupItem value={optionMode} id={`m-${optionMode}`} disabled={!option} />
+                              <Icon className="h-4 w-4 text-primary" />
+                              <span className="text-sm font-medium">By {optionMode}{option ? ` · ZMW ${option.price_per_traveller_zmw.toLocaleString()} · ${formatAvailability(option.availability)}` : " · Not available"}</span>
+                            </label>;
+                          })}
+                        </RadioGroup>
+                      </div>
+
+                      <div><Label htmlFor="fullName">Full name</Label><Input id="fullName" name="fullName" required maxLength={80} placeholder="Your full name" /></div>
+                      <div><Label htmlFor="phone">Phone number</Label><Input id="phone" name="phone" required maxLength={20} placeholder="+260…" /></div>
+                      <div><Label htmlFor="email">Email</Label><Input id="email" name="email" type="email" required maxLength={120} placeholder="you@example.com" /></div>
+                      <div>
+                        <Label>Travellers</Label>
+                        <Select value={travellers} onValueChange={(value) => { idempotencyKey.current = null; setTravellers(value); }}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>{Array.from({ length: 10 }, (_, index) => index + 1).map((count) => <SelectItem key={count} value={String(count)}>{count}</SelectItem>)}</SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label>Total estimate for {travellers} {Number(travellers) === 1 ? "traveller" : "travellers"}</Label>
+                        <div className="mt-1 rounded-xl border border-border bg-background px-3 py-2.5 text-sm font-semibold text-foreground">ZMW {total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                      </div>
+                      <div className="sm:col-span-2"><Label htmlFor="notes">Notes (optional)</Label><Textarea id="notes" name="notes" maxLength={400} placeholder="Dietary needs, room preferences, accessibility…" /></div>
+                      <div className="sm:col-span-2"><TurnstileWidget action="kakande_trip_request" onToken={handleTurnstileToken} resetKey={turnstileResetKey} /></div>
+                      <Button type="submit" disabled={submitting || !turnstileToken || !selectedOption} className="sm:col-span-2 mt-2 min-h-12 w-full rounded-full bg-accent text-accent-foreground transition hover:bg-[hsl(var(--accent-hover))] disabled:cursor-not-allowed disabled:opacity-60">
+                        {submitting ? "Submitting…" : "Send trip request"}
+                      </Button>
+                      <p className="sm:col-span-2 mt-0 text-xs text-muted-foreground">Submitting sends an inquiry only and does not reserve a place. The team will confirm availability, any applicable price, and required documents before discussing payment.</p>
+                    </form>
+                  </>}
                 </div>
               )}
             </div>
