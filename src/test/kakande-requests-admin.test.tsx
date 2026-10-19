@@ -184,6 +184,18 @@ describe("admin Kakande request list", () => {
     expect(rpcMock).not.toHaveBeenCalled();
   });
 
+  it("keeps status and notes fields top-aligned with a separate responsive action row", async () => {
+    rangeMock.mockResolvedValue({ data: [fixture()], error: null, count: 1 });
+    render(<KakandeRequests canUpdateRequests canApproveRequests />);
+    await screen.findByText("KMR-20261018-0123456789ABCDEF");
+
+    const controls = screen.getByTestId("kakande-request-controls");
+    expect(controls).toHaveClass("md:items-start");
+    expect(controls).toHaveClass("md:grid-cols-[minmax(12rem,0.35fr)_minmax(0,1fr)]");
+    expect(screen.getByRole("combobox", { name: "Request status for KMR-20261018-0123456789ABCDEF" })).toHaveClass("max-w-sm");
+    expect(screen.getByTestId("kakande-request-actions")).toHaveClass("md:col-span-2");
+  });
+
   it("rejects invalid status values before calling the database RPC", async () => {
     rangeMock.mockResolvedValue({ data: [fixture()], error: null, count: 1 });
     render(<KakandeRequests canUpdateRequests canApproveRequests />);

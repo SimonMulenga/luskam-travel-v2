@@ -225,24 +225,24 @@ export const KakandeRequests = ({
                   <div><dt className="text-xs text-muted-foreground">Quoted amount</dt><dd className="mt-0.5 font-semibold text-primary">{request.currency_code} {formatAmount(request.total_quoted_amount_zmw)}</dd></div>
                   <div><dt className="text-xs text-muted-foreground">Submitted</dt><dd className="mt-0.5 font-medium">{format(parseISO(request.created_at), "dd MMM yyyy, HH:mm")}</dd></div>
                 </dl>
-                {editableByRole && <div className="mt-5 grid gap-3 border-t border-border/70 pt-4 sm:grid-cols-[minmax(10rem,0.7fr)_minmax(0,1.3fr)_auto] sm:items-end">
-                  <div>
-                    <label htmlFor={`kakande-status-${request.id}`} className="text-xs font-semibold text-primary">Request status</label>
+                {editableByRole && <div data-testid="kakande-request-controls" className="mt-5 grid gap-4 border-t border-border/70 pt-4 md:grid-cols-[minmax(12rem,0.35fr)_minmax(0,1fr)] md:items-start">
+                  <div className="min-w-0">
+                    <label htmlFor={`kakande-status-${request.id}`} className="block text-xs font-semibold text-primary">Request status</label>
                     <select
                       id={`kakande-status-${request.id}`}
                       aria-label={`Request status for ${request.reference}`}
                       value={draft.status}
                       disabled={saving}
                       onChange={(event) => updateDraft(request, { status: event.target.value as KakandeStatus })}
-                      className="mt-1.5 min-h-10 w-full rounded-xl border border-border bg-white px-3 text-sm text-primary focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
+                      className="mt-1.5 min-h-11 w-full max-w-sm rounded-xl border border-border bg-white px-3 text-sm text-primary focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
                     >
                       {statusOptions.filter((option) => canApproveRequests || option.value === "in_progress" || option.value === request.status).map((option) => (
                         <option key={option.value} value={option.value}>{option.label}</option>
                       ))}
                     </select>
                   </div>
-                  <div>
-                    <label htmlFor={`kakande-notes-${request.id}`} className="text-xs font-semibold text-primary">Internal staff notes</label>
+                  <div className="min-w-0">
+                    <label htmlFor={`kakande-notes-${request.id}`} className="block text-xs font-semibold text-primary">Internal staff notes</label>
                     <textarea
                       id={`kakande-notes-${request.id}`}
                       aria-label={`Internal staff notes for ${request.reference}`}
@@ -250,19 +250,21 @@ export const KakandeRequests = ({
                       maxLength={5000}
                       disabled={saving}
                       onChange={(event) => updateDraft(request, { internalNotes: event.target.value })}
-                      className="mt-1.5 min-h-10 w-full resize-y rounded-xl border border-border bg-white px-3 py-2 text-sm text-primary focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
+                      className="mt-1.5 min-h-24 w-full resize-y rounded-xl border border-border bg-white px-3 py-2 text-sm text-primary focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
                     />
                     <p className="mt-1 text-xs text-muted-foreground">Private to authorized staff; not shown to applicants.</p>
                   </div>
+                  <div data-testid="kakande-request-actions" className="flex flex-col-reverse gap-3 md:col-span-2 md:flex-row md:items-center md:justify-between">
+                  {feedback[request.id] && <p className={`text-sm ${feedback[request.id].kind === "success" ? "text-emerald-700" : "text-rose-800"}`} role={feedback[request.id].kind === "success" ? "status" : "alert"}>{feedback[request.id].message}</p>}
                   <button
                     type="button"
                     onClick={() => void saveRequestUpdate(request)}
                     disabled={saving || !dirty}
-                    className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full bg-primary px-4 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-full bg-primary px-4 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 md:ml-auto md:w-auto"
                   >
                     {saving ? <><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Saving</> : <><Check className="h-4 w-4" aria-hidden="true" /> Save update</>}
                   </button>
-                  {feedback[request.id] && <p className={`sm:col-span-3 text-sm ${feedback[request.id].kind === "success" ? "text-emerald-700" : "text-rose-800"}`} role={feedback[request.id].kind === "success" ? "status" : "alert"}>{feedback[request.id].message}</p>}
+                  </div>
                 </div>}
                     </>
                   );
