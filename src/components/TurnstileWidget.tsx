@@ -43,9 +43,9 @@ function loadTurnstile(): Promise<void> {
   return scriptPromise;
 }
 
-type Props = { onToken: (token: string | null) => void; resetKey: number };
+type Props = { onToken: (token: string | null) => void; resetKey: number; action?: string };
 
-export function TurnstileWidget({ onToken, resetKey }: Props) {
+export function TurnstileWidget({ onToken, resetKey, action = "flight_quote_request" }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "unavailable">("loading");
   const siteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY?.trim();
@@ -63,7 +63,7 @@ export function TurnstileWidget({ onToken, resetKey }: Props) {
       if (!active || !containerRef.current || !window.turnstile) return;
       widgetId = window.turnstile.render(containerRef.current, {
         sitekey: siteKey,
-        action: "flight_quote_request",
+        action,
         callback: (token) => { if (active) { onToken(token); setStatus("ready"); } },
         "expired-callback": () => {
           if (active) {
@@ -79,7 +79,7 @@ export function TurnstileWidget({ onToken, resetKey }: Props) {
       active = false;
       if (widgetId && window.turnstile) window.turnstile.remove(widgetId);
     };
-  }, [siteKey, resetKey, onToken]);
+  }, [siteKey, resetKey, onToken, action]);
 
   return (
     <div className="space-y-2">
