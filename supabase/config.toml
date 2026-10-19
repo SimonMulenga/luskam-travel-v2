@@ -4,3 +4,7 @@ project_id = "ikbffvqkxwhkwlocjufc"
 # This endpoint intentionally accepts anonymous requests. The handler validates
 # input, enforces persistent IP-based rate limits, and writes only via service role.
 verify_jwt = false
+
+[functions.request-kakande-trip]
+# Anonymous submission only; server verifies Turnstile before limiter or write RPCs.
+verify_jwt = false
