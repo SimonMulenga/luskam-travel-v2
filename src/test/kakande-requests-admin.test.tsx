@@ -25,6 +25,7 @@ const fixture = (overrides: Record<string, unknown> = {}) => ({
   total_quoted_amount_zmw: 4500,
   currency_code: "ZMW" as const,
   status: "pending" as const,
+  internal_notes: "Synthetic internal note",
   created_at: "2026-10-18T10:30:00.000Z",
   ...overrides,
 });
@@ -60,11 +61,12 @@ describe("admin Kakande request list", () => {
 
     expect(fromMock).toHaveBeenCalledWith("kakande_ministry_requests");
     expect(selectMock).toHaveBeenCalledWith(
-      "id, reference, customer_name, customer_phone, trip_month, travel_mode, travel_date, total_quoted_amount_zmw, currency_code, status, created_at",
+      "id, reference, customer_name, customer_phone, trip_month, travel_mode, travel_date, total_quoted_amount_zmw, currency_code, status, internal_notes, created_at",
       { count: "exact" },
     );
     const selectedColumns = selectMock.mock.calls[0][0] as string;
-    expect(selectedColumns).not.toMatch(/internal_notes|customer_notes|customer_email|audit|event|details/i);
+    expect(selectedColumns).toContain("internal_notes");
+    expect(selectedColumns).not.toMatch(/customer_notes|customer_email|audit|event|details/i);
     expect(orderMock).toHaveBeenCalledWith("created_at", { ascending: false });
     expect(secondOrderMock).toHaveBeenCalledWith("id", { ascending: true });
     expect(rangeMock).toHaveBeenCalledWith(0, 24);
@@ -134,5 +136,101 @@ describe("admin Kakande request list", () => {
     render(<KakandeRequests canManageTrips />);
     expect(await screen.findByRole("heading", { name: "Manage trips" })).toBeInTheDocument();
     expect(rpcMock).toHaveBeenCalledWith("list_kakande_monthly_trips");
+  });
+
+  it("lets an authorized admin update status and private notes through the RPC, then refreshes the saved status", async () => {
+    rangeMock
+      .mockResolvedValueOnce({ data: [fixture()], error: null, count: 1 })
+      .mockResolvedValueOnce({ data: [fixture({ status: "approved", internal_notes: "Reviewed by staff" })], error: null, count: 1 });
+    rpcMock.mockResolvedValueOnce({ data: { outcome: "updated", reference: fixture().reference, status: "approved" }, error: null });
+    render(<KakandeRequests canUpdateRequests canApproveRequests />);
+
+    await screen.findByText("KMR-20261018-0123456789ABCDEF");
+    fireEvent.change(screen.getByRole("combobox", { name: "Request status for KMR-20261018-0123456789ABCDEF" }), { target: { value: "approved" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Internal staff notes for KMR-20261018-0123456789ABCDEF" }), { target: { value: "Reviewed by staff" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save update" }));
+
+    expect(await screen.findByText("Request updated.")).toBeInTheDocument();
+    expect(rpcMock).toHaveBeenCalledWith("update_kakande_ministry_request", {
+      p_request_id: fixture().id,
+      p_status: "approved",
+      p_internal_notes: "Reviewed by staff",
+    });
+    await waitFor(() => expect(rangeMock).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole("combobox", { name: "Request status for KMR-20261018-0123456789ABCDEF" })).toHaveValue("approved");
+  });
+
+  it("shows a safe error and keeps the previous status when the update RPC fails", async () => {
+    rangeMock.mockResolvedValue({ data: [fixture()], error: null, count: 1 });
+    rpcMock.mockResolvedValueOnce({ data: null, error: new Error("private database detail") });
+    render(<KakandeRequests canUpdateRequests canApproveRequests />);
+    await screen.findByText("KMR-20261018-0123456789ABCDEF");
+    fireEvent.change(screen.getByRole("combobox", { name: "Request status for KMR-20261018-0123456789ABCDEF" }), { target: { value: "approved" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save update" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("The request update could not be saved");
+    expect(screen.queryByText("private database detail")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Pending")).toHaveLength(2);
+    expect(rangeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not expose status controls unless the existing staff authorization guard grants them", async () => {
+    rangeMock.mockResolvedValue({ data: [fixture()], error: null, count: 1 });
+    render(<KakandeRequests />);
+    await screen.findByText("KMR-20261018-0123456789ABCDEF");
+
+    expect(screen.queryByRole("combobox", { name: /Request status/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: /Internal staff notes/ })).not.toBeInTheDocument();
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid status values before calling the database RPC", async () => {
+    rangeMock.mockResolvedValue({ data: [fixture()], error: null, count: 1 });
+    render(<KakandeRequests canUpdateRequests canApproveRequests />);
+    await screen.findByText("KMR-20261018-0123456789ABCDEF");
+    fireEvent.change(screen.getByRole("combobox", { name: "Request status for KMR-20261018-0123456789ABCDEF" }), { target: { value: "forged_status" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save update" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("This update is not permitted");
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it("prevents duplicate saves while an update is in progress", async () => {
+    rangeMock.mockResolvedValue({ data: [fixture()], error: null, count: 1 });
+    let resolveUpdate!: (value: { data: { outcome: string; reference: string; status: string }; error: null }) => void;
+    rpcMock.mockReturnValueOnce(new Promise((resolve) => { resolveUpdate = resolve; }));
+    render(<KakandeRequests canUpdateRequests canApproveRequests />);
+    await screen.findByText("KMR-20261018-0123456789ABCDEF");
+    fireEvent.change(screen.getByRole("combobox", { name: "Request status for KMR-20261018-0123456789ABCDEF" }), { target: { value: "approved" } });
+    const saveButton = screen.getByRole("button", { name: "Save update" });
+    fireEvent.click(saveButton);
+    fireEvent.click(saveButton);
+
+    expect(rpcMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Saving" })).toBeDisabled();
+    await act(async () => resolveUpdate({ data: { outcome: "updated", reference: fixture().reference, status: "approved" }, error: null }));
+    expect(await screen.findByText("Request updated.")).toBeInTheDocument();
+  });
+
+  it("limits agent status options to the database-permitted in-progress transition", async () => {
+    rangeMock.mockResolvedValue({ data: [fixture()], error: null, count: 1 });
+    render(<KakandeRequests canUpdateRequests />);
+    await screen.findByText("KMR-20261018-0123456789ABCDEF");
+    const statusSelect = screen.getByRole("combobox", { name: "Request status for KMR-20261018-0123456789ABCDEF" });
+    expect(statusSelect).toHaveTextContent("Pending");
+    expect(statusSelect).toHaveTextContent("In progress");
+    expect(statusSelect).not.toHaveTextContent("Approved by Luskam");
+    expect(statusSelect).not.toHaveTextContent("Rejected by Luskam");
+  });
+
+  it("rejects an agent attempt to submit an administrator-only status", async () => {
+    rangeMock.mockResolvedValue({ data: [fixture()], error: null, count: 1 });
+    render(<KakandeRequests canUpdateRequests />);
+    await screen.findByText("KMR-20261018-0123456789ABCDEF");
+    fireEvent.change(screen.getByRole("combobox", { name: "Request status for KMR-20261018-0123456789ABCDEF" }), { target: { value: "approved" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save update" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("This update is not permitted");
+    expect(rpcMock).not.toHaveBeenCalled();
   });
 });

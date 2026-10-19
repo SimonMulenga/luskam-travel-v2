@@ -13,7 +13,7 @@ vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ user: access.user, loading
 vi.mock("@/hooks/useRoles", () => ({ useRoles: () => ({ isAdmin: access.isAdmin, isAgent: access.isAgent, loading: false }) }));
 vi.mock("@/components/Header", () => ({ Header: () => null }));
 vi.mock("@/components/Footer", () => ({ Footer: () => null }));
-vi.mock("@/components/admin/KakandeRequests", () => ({ KakandeRequests: ({ canManageTrips }: { canManageTrips: boolean }) => <div>Kakande list marker{canManageTrips && <div>Manage Trips marker</div>}</div> }));
+vi.mock("@/components/admin/KakandeRequests", () => ({ KakandeRequests: ({ canManageTrips, canUpdateRequests, canApproveRequests }: { canManageTrips: boolean; canUpdateRequests: boolean; canApproveRequests: boolean }) => <div>Kakande list marker{canUpdateRequests && <div>Request updates marker</div>}{canApproveRequests && <div>Request approvals marker</div>}{canManageTrips && <div>Manage Trips marker</div>}</div> }));
 vi.mock("@/components/admin/FlightQuoteRequests", () => ({ FlightQuoteRequests: () => <div>Flight quotes marker</div> }));
 vi.mock("@/components/admin/FlightPricing", () => ({ FlightPricing: () => null }));
 vi.mock("@/components/admin/SiteContentEditor", () => ({ SiteContentEditor: () => null }));
@@ -61,6 +61,8 @@ describe("existing admin dashboard Kakande tab access", () => {
     expect(screen.getByText("Flight quotes marker")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Kakande Ministries" }));
     expect(screen.getByText("Kakande list marker")).toBeInTheDocument();
+    expect(screen.getByText("Request updates marker")).toBeInTheDocument();
+    expect(screen.queryByText("Request approvals marker")).not.toBeInTheDocument();
     expect(screen.queryByText("Manage Trips marker")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Bookings" }));
     expect(screen.getByRole("heading", { name: "Booking requests" })).toBeInTheDocument();
@@ -72,5 +74,7 @@ describe("existing admin dashboard Kakande tab access", () => {
     expect(await screen.findByRole("button", { name: "Kakande Ministries" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Kakande Ministries" }));
     expect(screen.getByText("Manage Trips marker")).toBeInTheDocument();
+    expect(screen.getByText("Request updates marker")).toBeInTheDocument();
+    expect(screen.getByText("Request approvals marker")).toBeInTheDocument();
   });
 });

@@ -1060,6 +1060,14 @@ export type Database = {
           availability: string
         }[]
       }
+      update_kakande_ministry_request: {
+        Args: {
+          p_internal_notes: string
+          p_request_id: string
+          p_status: string
+        }
+        Returns: Json
+      }
       save_kakande_monthly_trip: {
         Args: {
           p_trip_id: string
