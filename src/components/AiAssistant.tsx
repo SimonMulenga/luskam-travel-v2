@@ -29,7 +29,7 @@ export const AiAssistant = () => {
     if (!text || busy) return;
     setInput("");
     setErr(null);
-    const next: Msg[] = [...msgs, { role: "user", content: text }];
+    const next: Msg[] = [...msgs, { role: "user" as const, content: text }].slice(-20);
     setMsgs(next);
     setBusy(true);
     try {
@@ -142,6 +142,7 @@ export const AiAssistant = () => {
           >
             <input
               value={input}
+              maxLength={4000}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Ask about visas, destinations…"
               disabled={busy}

@@ -1127,6 +1127,10 @@ export type Database = {
       revise_flight_quotation: { Args: { p_quotation_id: string; p_items: Json }; Returns: string }
       issue_flight_quotation: { Args: { p_quotation_id: string }; Returns: Json }
       expire_flight_quotation: { Args: { p_quotation_id: string }; Returns: boolean }
+      flight_quotation_issuer_names: {
+        Args: Record<PropertyKey, never>
+        Returns: { issuer_id: string; full_name: string }[]
+      }
       respond_to_flight_quotation: { Args: { p_quotation_id: string; p_accept: boolean }; Returns: Json }
       update_flight_quote_booking_status: { Args: { p_booking_id: string; p_status: string; p_staff_note?: string; p_supplier_confirmation_reference?: string | null; p_ticket_number?: string | null }; Returns: Json }
       my_flight_quotations: {

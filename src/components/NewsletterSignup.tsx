@@ -14,9 +14,11 @@ export const NewsletterSignup = () => {
     const parsed = schema.safeParse(email);
     if (!parsed.success) return toast.error("Please enter a valid email address");
     setBusy(true);
-    const { error } = await supabase.from("newsletter_subscribers").insert({ email: parsed.data.toLowerCase() });
+    const { error } = await supabase.functions.invoke("newsletter-subscribe", {
+      body: { email: parsed.data.toLowerCase() },
+    });
     setBusy(false);
-    if (error && error.code !== "23505") return toast.error("Could not subscribe. Please try again.");
+    if (error) return toast.error("Could not subscribe. Please try again.");
     toast.success("Thanks for subscribing!");
     setEmail("");
   };

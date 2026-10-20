@@ -7,6 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { FloatingContact } from "@/components/FloatingContact";
 import { AiAssistant } from "@/components/AiAssistant";
 import { PageMetadata } from "@/components/PageMetadata";
+import { isAiAssistantEnabled } from "@/lib/featureFlags";
 
 const Index = lazy(() => import("./pages/Index.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
@@ -35,7 +36,7 @@ const RouteFallback = () => (
 const CustomerSupportWidgets = () => {
   const { pathname } = useLocation();
   if (pathname === "/admin" || pathname.startsWith("/admin/")) return null;
-  return <><FloatingContact /><AiAssistant /></>;
+  return <><FloatingContact />{isAiAssistantEnabled(import.meta.env.VITE_ENABLE_AI_ASSISTANT) && <AiAssistant />}</>;
 };
 
 const App = () => (
