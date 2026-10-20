@@ -7,6 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { FloatingContact } from "@/components/FloatingContact";
 import { AiAssistant } from "@/components/AiAssistant";
 import { PageMetadata } from "@/components/PageMetadata";
+import { PwaInstallPrompt } from "@/components/PwaInstallPrompt";
 import { isAiAssistantEnabled } from "@/lib/featureFlags";
 
 const Index = lazy(() => import("./pages/Index.tsx"));
@@ -18,6 +19,8 @@ const Visa = lazy(() => import("./pages/Visa.tsx"));
 const Checkout = lazy(() => import("./pages/Checkout.tsx"));
 const Kakande = lazy(() => import("./pages/Kakande.tsx"));
 const Auth = lazy(() => import("./pages/Auth.tsx"));
+const ForgotPassword = lazy(() => import("./pages/ForgotPassword.tsx"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword.tsx"));
 const Account = lazy(() => import("./pages/Account.tsx"));
 const Admin = lazy(() => import("./pages/Admin.tsx"));
 const Blog = lazy(() => import("./pages/Blog.tsx"));
@@ -44,6 +47,7 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
+      <PwaInstallPrompt />
       <BrowserRouter>
         <PageMetadata />
         <Suspense fallback={<RouteFallback />}>
@@ -56,6 +60,8 @@ const App = () => (
             <Route path="/checkout" element={<Checkout />} />
             <Route path="/kakande" element={<Kakande />} />
             <Route path="/auth" element={<Auth />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/account" element={<Account />} />
             <Route path="/admin" element={<Admin />} />
             <Route path="/blog" element={<Blog />} />
